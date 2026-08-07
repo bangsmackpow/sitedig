@@ -1,0 +1,42 @@
+# Dependencies
+node_modules
+npm-debug.log*
+.yarn/cache
+.yarn
+
+# Next.js build output
+.next
+out
+
+# Worker build output
+dist-worker
+
+# Tests / coverage
+coverage
+tests/.tmp
+
+# Local environment
+.env
+.env.local
+.env*.local
+.env.development
+.env.production
+
+# Git / OS
+.git
+.gitignore
+.github
+
+# Docs handled separately (keep README for in-image metadata only)
+# Keep handoff/prompt docs out of the image
+DEEPSEEK-V4-FLASH-IMPLEMENTATION.md
+DEEPSEEK-V4-FLASH-PROMPT.md
+
+# Local artifacts
+artifacts
+
+# Editor files
+.vscode
+.idea
+*.log
+.DS_Store

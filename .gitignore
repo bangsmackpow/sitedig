@@ -1,0 +1,38 @@
+# dependencies
+/node_modules
+
+# next.js
+/.next/
+/out/
+
+# worker build output
+/dist-worker/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+*.tsbuildinfo
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# env
+.env
+.env.local
+.env*.local
+
+# test artifacts
+/coverage
+/tests/.tmp
+
+# artifacts dir (if run locally)
+/artifacts
+
+# Project setup/handoff docs (never pushed)
+DEEPSEEK-V4-FLASH-IMPLEMENTATION.md
+DEEPSEEK-V4-FLASH-PROMPT.md

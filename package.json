@@ -1,0 +1,44 @@
+{
+  "name": "sitedig",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Authorized reconnaissance scanner with PDF/Markdown reporting. Next.js web + isolated TypeScript scanner worker.",
+  "scripts": {
+    "dev": "next dev",
+    "dev:worker": "tsx watch src/worker/index.ts",
+    "build:worker": "tsc -p tsconfig.worker.json",
+    "build:web": "next build",
+    "build": "npm run build:worker && npm run build:web",
+    "start": "next start",
+    "start:worker": "node dist-worker/worker/index.js",
+    "lint": "next lint --dir src",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.worker.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "validate:compose": "node scripts/validate-compose.mjs"
+  },
+  "dependencies": {
+    "execa": "^8.0.1",
+    "next": "^15.5.23",
+    "pdfkit": "^0.19.1",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^22.15.0",
+    "@types/pdfkit": "^0.17.6",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "eslint": "^8.57.1",
+    "eslint-config-next": "^15.5.23",
+    "js-yaml": "^4.1.0",
+    "tsx": "^4.19.2",
+    "typescript": "~5.9.3",
+    "vitest": "^3.2.7"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

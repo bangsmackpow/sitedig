@@ -1,0 +1,25 @@
+{
+  "extends": ["next/core-web-vitals"],
+  "rules": {
+    "no-console": "off"
+  },
+  "overrides": [
+    {
+      "files": ["tests/**/*.ts"],
+      "env": {
+        "node": true
+      },
+      "globals": {
+        "describe": "readonly",
+        "it": "readonly",
+        "test": "readonly",
+        "expect": "readonly",
+        "beforeAll": "readonly",
+        "afterAll": "readonly",
+        "beforeEach": "readonly",
+        "afterEach": "readonly",
+        "vi": "readonly"
+      }
+    }
+  ]
+}
