@@ -25,6 +25,8 @@ interface Observations {
   technologies: Array<{ name: string; version: string | null }>;
   wordpressDetected: boolean;
   wpscan: WpscanResult | null;
+  wpscanRan: boolean;
+  wpscanError: string | null;
 }
 
 /**
@@ -272,6 +274,8 @@ export class ScannerService {
         technologies: [],
         wordpressDetected: false,
         wpscan: null,
+        wpscanRan: false,
+        wpscanError: null,
       };
       const toolResults: ToolResultRecord[] = [];
       const warnings: string[] = [];
@@ -331,6 +335,17 @@ export class ScannerService {
             record.timedOut = result.timedOut;
             record.error = result.error ?? (result.exitCode !== 0 ? `exited with code ${result.exitCode}` : null);
             record.ok = !record.error;
+            if (!record.ok) {
+              // Troubleshooting only: never expose raw output in reports/UI.
+              this.log.warn('tool_failed', {
+                jobId,
+                tool: step.tool,
+                exitCode: result.exitCode,
+                timedOut: result.timedOut,
+                outputTail: result.output.slice(-2000),
+                truncated: result.truncated,
+              });
+            }
 
             if (step.tool === 'nmap') {
               const outFile = path.join(jobDir, 'nmap.grepable');
@@ -384,13 +399,16 @@ export class ScannerService {
       }
 
       // Conditional WPScan: run local WPScan when WordPress is detected and the
-      // plan did not already include it.
+      // plan did not already include it. A failure here is non-fatal: the scan
+      // still completes and the report notes the WPScan error.
       if (observations.wordpressDetected && !plan.steps.some((s) => s.tool === 'wpscan')) {
+        observations.wpscanRan = true;
         const wpscanResult = await this.runConditionalWpscan(job, runnerDeps, controller, effectiveTimeout, startedAt, jobDir);
         if (wpscanResult) {
           observations.wpscan = wpscanResult.parsed;
           toolResults.push(wpscanResult.record);
           if (!wpscanResult.record.ok && wpscanResult.record.error) {
+            observations.wpscanError = wpscanResult.record.error;
             warnings.push(`WPScan: ${wpscanResult.record.error}`);
           }
         }
@@ -403,6 +421,8 @@ export class ScannerService {
         technologies: observations.technologies,
         wordpressDetected: observations.wordpressDetected,
         wpscan: observations.wpscan,
+        wpscanRan: observations.wpscanRan,
+        wpscanError: observations.wpscanError,
         host: job.target.host,
         path: job.target.path,
       });
@@ -433,8 +453,8 @@ export class ScannerService {
         technologies: observations.technologies,
         wordpress: {
           detected: observations.wordpressDetected,
-          wpscanRan: Boolean(observations.wpscan),
-          notes: observations.wpscan?.notes ?? [],
+          wpscanRan: observations.wpscanRan,
+          notes: [...(observations.wpscan?.notes ?? []), ...(observations.wpscanError ? [`Local WPScan checks failed: ${observations.wpscanError}`] : [])],
         },
         toolResults,
         limitations: LIMITATIONS,

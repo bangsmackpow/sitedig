@@ -123,6 +123,26 @@ describe('ScannerService integration', () => {
     svc.stop();
   });
 
+  it('marks wpscan as run (with error) when the local wpscan fails', async () => {
+    const svc = new ScannerService(makeConfig({ scannerBinDir: path.join(__dirname, 'fixtures', 'stub-bin-failwpscan') }), createLogger({ LOG_LEVEL: 'silent' }), {
+      resolver: publicResolver(),
+      httpCheck: fakeHttp,
+      tlsCheck: fakeTls,
+    });
+    svc.start();
+    const job = await svc.createJob({ target: 'example.com', profile: 'quick' });
+    await waitFor(() => svc.getJob(job.id)?.status === 'completed');
+    const done = svc.getJob(job.id)!;
+    expect(done.status).toBe('completed');
+    const wp = done.report?.wordpress!;
+    expect(wp.detected).toBe(true);
+    expect(wp.wpscanRan).toBe(true);
+    expect(wp.notes.some((n) => n.includes('WPScan checks failed'))).toBe(true);
+    const finding = done.report?.findings.find((f) => f.category === 'wordpress')!;
+    expect(finding.evidence.some((e) => e.includes('wpscan_error'))).toBe(true);
+    svc.stop();
+  });
+
   it('returns a queue-full error when the queue is saturated', async () => {
     const slowHttp: typeof fakeHttp = async () => {
       await new Promise((r) => setTimeout(r, 3000));

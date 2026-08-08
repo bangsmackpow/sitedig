@@ -35,6 +35,9 @@ ENV APP_VERSION=${APP_VERSION}
 # - curl: available for operators and health checks
 # - openssl/ca-certificates: TLS checks
 # WPScan is a Ruby gem; it is optional and installed only when INSTALL_WPSCAN=true.
+# NOTE: never `apt-get autoremove` after installing wpscan. The gem's native
+# extensions (curb/nokogiri/rugged) link against runtime libraries that apt
+# would consider "unneeded" and purge, which makes wpscan crash on load.
 ARG INSTALL_WPSCAN=true
 ARG WPSCAN_VERSION=3.8.25
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -47,21 +50,24 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
          apt-get install -y --no-install-recommends \
            build-essential \
            git \
+           libcurl4 \
            libcurl4-openssl-dev \
            libxml2 \
            libxml2-dev \
            libxslt1-dev \
+           libyaml-0-2 \
            pkg-config \
            ruby \
            ruby-dev \
+           zlib1g \
            zlib1g-dev \
          && gem install wpscan --no-document -v "$WPSCAN_VERSION" \
-         && apt-get purge -y build-essential git libcurl4-openssl-dev libxml2-dev libxslt1-dev pkg-config ruby-dev zlib1g-dev \
-         && apt-get autoremove -y; \
+         && apt-get purge -y --allow-remove-essential build-essential ruby-dev git pkg-config \
+         && wpscan --version >/dev/null 2>&1 || { echo 'ERROR: wpscan failed to run at runtime (missing native libraries)'; exit 1; }; \
        fi \
     && rm -rf /var/lib/apt/lists/* /tmp/*
 
-# Non-root application user.
+# Non-root application user. HOME is set so Ruby tools (wpscan) can write caches.
 RUN groupadd -r scanner && useradd -r -g scanner -d /app scanner
 
 WORKDIR /app
@@ -78,6 +84,7 @@ COPY --from=build /app/public ./public
 RUN mkdir -p /tmp/sitedig-artifacts && chown -R scanner:scanner /app /tmp/sitedig-artifacts
 
 USER scanner
+ENV HOME=/app
 
 EXPOSE 3000 8081
 

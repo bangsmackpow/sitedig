@@ -183,6 +183,9 @@ function wordpressSection(doc: PDFKit.PDFDocument, report: ReportModel) {
   sectionTitle(doc, 'WordPress');
   kvRow(doc, 'Detected', String(report.wordpress.detected));
   kvRow(doc, 'WPScan run', String(report.wordpress.wpscanRan));
+  if (report.wordpress.notes.length === 0) {
+    doc.font('Helvetica').fontSize(9).fillColor(COLORS.muted).text('No WPScan notes.', MARGIN, doc.y, { width: CONTENT_WIDTH });
+  }
   for (const n of report.wordpress.notes) {
     doc.font('Courier').fontSize(9).fillColor(COLORS.muted).text(`- ${n}`, MARGIN + 12, doc.y, { width: CONTENT_WIDTH - 12 });
   }

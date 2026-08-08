@@ -98,6 +98,21 @@ describe('buildExecutiveSummary', () => {
     );
     expect(summary).toContain('medium-severity');
   });
+
+  it('mentions low findings when only low is present', () => {
+    const summary = buildExecutiveSummary(
+      baseReport().meta,
+      [{ id: 'F-1', category: 'misconfiguration', severity: 'low', title: 'Low thing', description: 'x', evidence: [], affected: null, confidence: 'high', verified: true, remediation: null }],
+      0,
+    );
+    expect(summary).toContain('No findings above low severity');
+    expect(summary).toContain('1 low-severity finding');
+  });
+
+  it('says nothing above informational when only informational present', () => {
+    const summary = buildExecutiveSummary(baseReport().meta, [], 0);
+    expect(summary).toContain('No findings above informational severity');
+  });
 });
 
 describe('sortFindings', () => {

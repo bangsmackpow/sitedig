@@ -40,7 +40,9 @@ export function buildExecutiveSummary(meta: ReportMeta, findings: Finding[], por
       .map((f) => f.title)
       .join('; ')}. These should be reviewed and remediated with priority.`;
   } else if (medium > 0) {
-    summary += ` No critical or high-severity findings were identified, but ${medium} medium-severity finding(s) and ${low} low-severity finding(s) were noted and should be reviewed.`;
+    summary += ` No critical or high-severity findings were identified, but ${medium} medium-severity finding(s)${low > 0 ? ` and ${low} low-severity finding(s)` : ''} were noted and should be reviewed.`;
+  } else if (low > 0) {
+    summary += ` No findings above low severity were identified; ${low} low-severity finding(s) were noted and should be reviewed.`;
   } else {
     summary += ` No findings above informational severity were identified.`;
   }
