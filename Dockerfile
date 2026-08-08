@@ -44,6 +44,9 @@ ARG WPSCAN_VERSION=3.8.25
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates \
       curl \
+      libcurl4 \
+      libxslt1.1 \
+      libyaml-0-2 \
       nmap \
       openssl \
       whatweb \
@@ -60,7 +63,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
            ruby-dev \
            zlib1g-dev \
          && gem install wpscan --no-document -v "$WPSCAN_VERSION" \
-         && wpscan --version >/dev/null 2>&1 || { echo 'ERROR: wpscan failed to run at runtime (missing native libraries)'; exit 1; }; \
+         && { wpscan --version || { echo '==== WPScan runtime failure — output below ===='; wpscan --version 2>&1 | tail -40; exit 1; }; }; \
        fi \
     && rm -rf /var/lib/apt/lists/* /tmp/*
 
