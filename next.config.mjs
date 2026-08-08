@@ -2,6 +2,9 @@
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  // The UI does not serve optimized images, so disable the image optimizer.
+  // This also lets the runtime image omit the heavy `sharp` dependency.
+  images: { unoptimized: true },
   // The worker owns all scanner subprocess execution. The web service must
   // never execute scanner commands; it only talks to the worker over HTTP.
   serverExternalPackages: [],

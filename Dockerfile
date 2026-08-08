@@ -80,8 +80,10 @@ RUN groupadd -r scanner && useradd -r -g scanner -d /app scanner
 
 WORKDIR /app
 COPY --from=build /app/package.json /app/package-lock.json ./
-# Production dependencies only.
-RUN npm ci --omit=dev && npm cache clean --force
+# Production dependencies only. `--omit=optional` drops Next.js's bundled
+# `sharp` image-optimization stack (~100MB+ of platform binaries), which this
+# app never uses (image optimization is disabled in next.config).
+RUN npm ci --omit=dev --omit=optional && npm cache clean --force
 # Build outputs.
 COPY --from=build /app/.next ./.next
 COPY --from=build /app/dist-worker ./dist-worker
