@@ -63,6 +63,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
            ruby-dev \
            zlib1g-dev \
          && gem install wpscan --no-document -v "$WPSCAN_VERSION" \
+         # Ruby 3.1 moved `logger`/`base64` out of the default load path; wpscan's
+         # activesupport dependency needs them at load time or it crashes.
+         && gem install logger --no-document \
+         && gem install base64 --no-document \
          && { wpscan --version || { echo '==== WPScan runtime failure — output below ===='; wpscan --version 2>&1 | tail -40; exit 1; }; }; \
        fi \
     && rm -rf /var/lib/apt/lists/* /tmp/*
