@@ -27,6 +27,7 @@ interface Observations {
   wpscan: WpscanResult | null;
   wpscanRan: boolean;
   wpscanError: string | null;
+  wpscanExitNote: string | null;
 }
 
 /**
@@ -276,6 +277,7 @@ export class ScannerService {
         wpscan: null,
         wpscanRan: false,
         wpscanError: null,
+        wpscanExitNote: null,
       };
       const toolResults: ToolResultRecord[] = [];
       const warnings: string[] = [];
@@ -334,8 +336,7 @@ export class ScannerService {
             record.exitCode = result.exitCode;
             record.timedOut = result.timedOut;
             record.error = result.error ?? (result.exitCode !== 0 ? `exited with code ${result.exitCode}` : null);
-            record.ok = !record.error;
-            if (!record.ok) {
+            if (record.error) {
               // Troubleshooting only: never expose raw output in reports/UI.
               this.log.warn('tool_failed', {
                 jobId,
@@ -362,8 +363,20 @@ export class ScannerService {
             } else if (step.tool === 'wpscan') {
               const outFile = path.join(jobDir, 'wpscan.json');
               const raw = fs.existsSync(outFile) ? fs.readFileSync(outFile, 'utf8') : result.output;
-              observations.wpscan = parseWpscanJson(raw);
+              const parsed = parseWpscanJson(raw);
+              observations.wpscan = parsed;
+              // WPScan uses semantic exit codes (e.g. 3 = post-run exception).
+              // If we got parseable results, the scan succeeded; surface the
+              // non-zero code as an informational note rather than a failure.
+              if (parsed) {
+                record.ok = true;
+                record.error = null;
+                if (result.exitCode !== 0) {
+                  observations.wpscanExitNote = `WPScan exited with code ${result.exitCode}; findings were still collected.`;
+                }
+              }
             }
+            record.ok = !record.error;
           }
         } catch (e) {
           if (controller.signal.aborted) {
@@ -406,6 +419,7 @@ export class ScannerService {
         const wpscanResult = await this.runConditionalWpscan(job, runnerDeps, controller, effectiveTimeout, startedAt, jobDir);
         if (wpscanResult) {
           observations.wpscan = wpscanResult.parsed;
+          observations.wpscanExitNote = wpscanResult.exitNote;
           toolResults.push(wpscanResult.record);
           if (!wpscanResult.record.ok && wpscanResult.record.error) {
             observations.wpscanError = wpscanResult.record.error;
@@ -423,6 +437,7 @@ export class ScannerService {
         wpscan: observations.wpscan,
         wpscanRan: observations.wpscanRan,
         wpscanError: observations.wpscanError,
+        wpscanExitNote: observations.wpscanExitNote,
         host: job.target.host,
         path: job.target.path,
       });
@@ -454,7 +469,11 @@ export class ScannerService {
         wordpress: {
           detected: observations.wordpressDetected,
           wpscanRan: observations.wpscanRan,
-          notes: [...(observations.wpscan?.notes ?? []), ...(observations.wpscanError ? [`Local WPScan checks failed: ${observations.wpscanError}`] : [])],
+          notes: [
+            ...(observations.wpscan?.notes ?? []),
+            ...(observations.wpscanExitNote ? [observations.wpscanExitNote] : []),
+            ...(observations.wpscanError ? [`Local WPScan checks failed: ${observations.wpscanError}`] : []),
+          ],
         },
         toolResults,
         limitations: LIMITATIONS,
@@ -498,7 +517,7 @@ export class ScannerService {
     effectiveTimeout: number,
     startedAt: number,
     jobDir: string,
-  ): Promise<{ record: ToolResultRecord; parsed: ReturnType<typeof parseWpscanJson> } | null> {
+  ): Promise<{ record: ToolResultRecord; parsed: ReturnType<typeof parseWpscanJson>; exitNote: string | null } | null> {
     const step = {
       tool: 'wpscan' as const,
       label: 'WPScan (local-only, auto-detected WordPress)',
@@ -519,19 +538,25 @@ export class ScannerService {
       const stepStart = Date.now();
       const outFile = path.join(jobDir, 'wpscan.json');
       const result = await runTool(step.tool, step.args, runnerDeps, { timeoutMs: stepTimeout, signal: controller.signal });
+      const raw = fs.existsSync(outFile) ? fs.readFileSync(outFile, 'utf8') : result.output;
+      const parsed = parseWpscanJson(raw);
+      // WPScan uses semantic exit codes (0/1/2/3/4/5); a non-zero code after
+      // producing parseable JSON is not a hard failure. Treat it as success
+      // and surface the code as an informational note.
+      const ok = parsed !== null;
       const record: ToolResultRecord = {
         tool: 'wpscan',
         label: step.label,
-        ok: result.exitCode === 0,
+        ok,
         timedOut: result.timedOut,
         exitCode: result.exitCode,
-        error: result.error ?? (result.exitCode !== 0 ? `exited with code ${result.exitCode}` : null),
+        error: ok ? null : result.error ?? (result.exitCode !== 0 ? `exited with code ${result.exitCode}` : 'produced no parseable output'),
         startedAt: new Date(stepStart).toISOString(),
         finishedAt: new Date().toISOString(),
         durationMs: Date.now() - stepStart,
       };
-      const raw = fs.existsSync(outFile) ? fs.readFileSync(outFile, 'utf8') : result.output;
-      return { record, parsed: parseWpscanJson(raw) };
+      const exitNote = ok && result.exitCode !== 0 ? `WPScan exited with code ${result.exitCode}; findings were still collected.` : null;
+      return { record, parsed, exitNote };
     } catch (e) {
       return null;
     }
@@ -541,12 +566,27 @@ export class ScannerService {
     const tools = ['nmap', 'whatweb', 'wpscan'] as const;
     const versions: Array<{ tool: string; version: string | null }> = [];
     for (const tool of tools) {
+      if (tool === 'wpscan') {
+        versions.push({ tool, version: await this.captureWpscanVersion(runnerDeps) });
+        continue;
+      }
       const args = VERSION_PROBE_ARGS[tool];
       if (!args) continue;
       const version = await captureToolVersion(tool, runnerDeps, args);
       versions.push({ tool, version });
     }
     return versions;
+  }
+
+  /** `wpscan --version` prints a large ASCII banner first; extract the real version. */
+  private async captureWpscanVersion(runnerDeps: RunnerDeps): Promise<string | null> {
+    try {
+      const res = await runTool('wpscan', ['--version'], runnerDeps, { timeoutMs: 15_000 });
+      const match = res.output.match(/Version\s+(\d+\.\d+(?:\.\d+)?)/);
+      return match ? `WPScan ${match[1]}` : null;
+    } catch {
+      return null;
+    }
   }
 
   private async sweepArtifacts(): Promise<void> {

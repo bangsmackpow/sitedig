@@ -13,6 +13,7 @@ export interface FindingsInput {
   wpscan: WpscanResult | null;
   wpscanRan: boolean;
   wpscanError: string | null;
+  wpscanExitNote: string | null;
   host: string;
   path: string;
 }
@@ -210,6 +211,9 @@ export function buildFindings(input: FindingsInput): Finding[] {
   if (input.wordpressDetected) {
     const notes = input.wpscan?.notes ?? [];
     let description = `WordPress was detected on the target.${input.wpscan?.wordpressVersion ? ` Reported version: ${input.wpscan.wordpressVersion}.` : ''}${notes.length ? ` Local WPScan checks noted: ${notes.join(' ')}` : ''}`;
+    if (input.wpscanExitNote) {
+      description += ` ${input.wpscanExitNote}`;
+    }
     if (input.wpscanRan && input.wpscanError) {
       description += ` Local WPScan checks failed to complete: ${input.wpscanError}. Full output is available in the server logs.`;
     }
@@ -219,7 +223,12 @@ export function buildFindings(input: FindingsInput): Finding[] {
       severity: 'informational',
       title: 'WordPress detected',
       description,
-      evidence: [...(input.wpscan?.wordpressVersion ? [`wordpress: ${input.wpscan.wordpressVersion}`] : []), ...notes, ...(input.wpscanError ? [`wpscan_error: ${input.wpscanError}`] : [])],
+      evidence: [
+        ...(input.wpscan?.wordpressVersion ? [`wordpress: ${input.wpscan.wordpressVersion}`] : []),
+        ...notes,
+        ...(input.wpscanExitNote ? [input.wpscanExitNote] : []),
+        ...(input.wpscanError ? [`wpscan_error: ${input.wpscanError}`] : []),
+      ],
       affected: `${input.host}${input.path}`,
       confidence: 'high',
       verified: true,

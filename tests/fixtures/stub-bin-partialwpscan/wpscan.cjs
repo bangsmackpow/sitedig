@@ -1,6 +1,7 @@
 'use strict';
-// Stub `wpscan` used by integration tests. Never scans anything.
-// Writes a fake `--format json --output FILE` result.
+// Stub `wpscan` that writes valid JSON results but exits with a semantic
+// non-zero code (3 = post-run exception). Simulates real-world wpscan behavior
+// where findings are collected despite a non-zero exit.
 const fs = require('node:fs');
 
 function main() {
@@ -17,15 +18,18 @@ function main() {
   const result = {
     version: '3.8.25',
     wordpress: { version: '6.4' },
-    interesting_findings: [{ to_s: 'example' }],
+    interesting_findings: [
+      { to_s: 'example finding one' },
+      { to_s: 'example finding two' },
+    ],
     plugins: {},
     themes: {},
   };
 
   const text = JSON.stringify(result, null, 2) + '\n';
   if (outFile) fs.writeFileSync(outFile, text, 'utf8');
-  process.stdout.write('WPScan stub completed\n');
-  process.exit(0);
+  process.stderr.write('(stub) post-run exception simulated\n');
+  process.exit(3);
 }
 
 main();

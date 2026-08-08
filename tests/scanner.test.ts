@@ -143,6 +143,35 @@ describe('ScannerService integration', () => {
     svc.stop();
   });
 
+  it('treats a non-zero wpscan exit as success when results are collected', async () => {
+    const svc = new ScannerService(makeConfig({ scannerBinDir: path.join(__dirname, 'fixtures', 'stub-bin-partialwpscan') }), createLogger({ LOG_LEVEL: 'silent' }), {
+      resolver: publicResolver(),
+      httpCheck: fakeHttp,
+      tlsCheck: fakeTls,
+    });
+    svc.start();
+    const job = await svc.createJob({ target: 'example.com', profile: 'quick' });
+    await waitFor(() => svc.getJob(job.id)?.status === 'completed');
+    const done = svc.getJob(job.id)!;
+    expect(done.status).toBe('completed');
+    expect(done.report?.meta.warnings.some((w) => w.includes('WPScan'))).toBe(false);
+
+    const wp = done.report?.wordpress!;
+    expect(wp.wpscanRan).toBe(true);
+    expect(wp.notes.some((n) => n.includes('exited with code 3'))).toBe(true);
+    expect(wp.notes.some((n) => n.includes('failed'))).toBe(false);
+
+    const toolResult = done.report?.toolResults.find((t) => t.tool === 'wpscan')!;
+    expect(toolResult.ok).toBe(true);
+    expect(toolResult.exitCode).toBe(3);
+
+    const finding = done.report?.findings.find((f) => f.category === 'wordpress')!;
+    expect(finding.description).toContain('exited with code 3');
+    expect(finding.description).not.toContain('failed');
+    expect(finding.evidence.some((e) => e.includes('wpscan_error'))).toBe(false);
+    svc.stop();
+  });
+
   it('returns a queue-full error when the queue is saturated', async () => {
     const slowHttp: typeof fakeHttp = async () => {
       await new Promise((r) => setTimeout(r, 3000));
