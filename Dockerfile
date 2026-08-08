@@ -28,6 +28,10 @@ FROM node:22-bookworm-slim AS runtime
 ENV NODE_ENV=production
 ARG APP_VERSION=0.1.0
 ENV APP_VERSION=${APP_VERSION}
+# Ruby 3.1 moved `logger`/`base64` out of the default load path. wpscan's
+# activesupport dependency references `Logger` without requiring it, so force
+# both gems to be required at every Ruby process start.
+ENV RUBYOPT="-rlogger -rbase64"
 
 # Scanner tools + system dependencies.
 # - nmap: TCP connect scans (no raw sockets / no root required)
