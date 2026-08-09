@@ -18,16 +18,21 @@
     "validate:compose": "node scripts/validate-compose.mjs"
   },
   "dependencies": {
+    "better-sqlite3": "^13.0.3",
     "execa": "^8.0.1",
     "next": "^15.5.23",
+    "nodemailer": "^9.0.5",
     "pdfkit": "^0.19.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "stripe": "^22.4.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.15.0",
+    "@types/nodemailer": "^8.0.1",
     "@types/pdfkit": "^0.17.6",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",

@@ -1,5 +1,10 @@
 import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
 import { cancelScan, WorkerClientError, WorkerUnavailableError } from '@/app/lib/worker-client';
+import { ensureInitialized } from '@/server/bootstrap';
+import { guardUser } from '@/server/http';
+import { errorJson } from '@/server/http';
+import { verifyCsrfOrOrigin } from '@/server/auth/csrf';
 
 export const dynamic = 'force-dynamic';
 
@@ -7,7 +12,11 @@ interface Ctx {
   params: Promise<{ id: string }>;
 }
 
-export async function POST(_req: Request, ctx: Ctx): Promise<NextResponse> {
+export async function POST(req: NextRequest, ctx: Ctx): Promise<NextResponse> {
+  await ensureInitialized();
+  if (!verifyCsrfOrOrigin(req)) return errorJson('Request origin not allowed.', 403, 'forbidden');
+  const guard = await guardUser(req);
+  if (!guard.ok) return guard.response;
   const { id } = await ctx.params;
   try {
     const job = await cancelScan(id);

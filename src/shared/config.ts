@@ -12,12 +12,34 @@ import {
 } from './constants';
 import { parseEnabledModules } from './modules';
 import type { ModuleId } from './types';
-
 export interface WebConfig {
   port: number;
   workerUrl: string;
   serviceToken: string;
   logLevel: string;
+  deploymentMode: 'hosted' | 'self-hosted';
+  databasePath: string;
+  appBaseUrl: string;
+  initialAdminEmail: string;
+  initialAdminPassword: string;
+  smtp: {
+    host: string;
+    port: number;
+    secure: boolean;
+    username: string;
+    password: string;
+    from: string;
+    configured: boolean;
+  };
+  stripe: {
+    secretKey: string;
+    webhookSecret: string;
+    priceId: string;
+    portalReturnUrl: string;
+    configured: boolean;
+  };
+  /** Deployment-level availability ceiling for paid modules (env ENABLED_MODULES). */
+  enabledModules: Set<ModuleId>;
 }
 
 export interface WorkerConfig {
@@ -58,12 +80,56 @@ function boolEnv(env: NodeJS.ProcessEnv, name: string, fallback: boolean): boole
 }
 
 export function getWebConfig(env: NodeJS.ProcessEnv = process.env): WebConfig {
+  const deploymentMode = env.DEPLOYMENT_MODE === 'hosted' ? 'hosted' : 'self-hosted';
+  const smtpHost = env.SMTP_HOST ?? '';
+  const smtpUsername = env.SMTP_USERNAME ?? '';
+  const smtpPassword = env.SMTP_PASSWORD ?? '';
+  const smtpFrom = env.SMTP_FROM ?? '';
+  const stripeKey = env.STRIPE_SECRET_KEY ?? '';
+  const stripeWebhook = env.STRIPE_WEBHOOK_SECRET ?? '';
   return {
     port: intEnv(env, 'WEB_PORT', DEFAULT_WEB_PORT),
     workerUrl: (env.WORKER_URL ?? 'http://localhost:8081').replace(/\/+$/, ''),
     serviceToken: env.SCAN_SERVICE_TOKEN ?? '',
     logLevel: env.LOG_LEVEL ?? 'info',
+    deploymentMode,
+    databasePath: env.DATABASE_PATH ?? './data/sitedig.sqlite',
+    appBaseUrl: (env.APP_BASE_URL ?? 'http://localhost:3000').replace(/\/+$/, ''),
+    initialAdminEmail: (env.INITIAL_ADMIN_EMAIL ?? '').trim().toLowerCase(),
+    initialAdminPassword: env.INITIAL_ADMIN_PASSWORD ?? '',
+    smtp: {
+      host: smtpHost,
+      port: intEnv(env, 'SMTP_PORT', 587),
+      secure: boolEnv(env, 'SMTP_SECURE', false),
+      username: smtpUsername,
+      password: smtpPassword,
+      from: smtpFrom,
+      configured: Boolean(smtpHost && smtpFrom),
+    },
+    stripe: {
+      secretKey: stripeKey,
+      webhookSecret: stripeWebhook,
+      priceId: env.STRIPE_PRICE_ID ?? '',
+      portalReturnUrl: env.STRIPE_PORTAL_RETURN_URL ?? '',
+      configured: Boolean(stripeKey && stripeWebhook && env.STRIPE_PRICE_ID),
+    },
+    enabledModules: parseEnabledModules(env as Record<string, string | undefined>),
   };
+}
+
+/** Validate deployment config; throws with a clear message when invalid. */
+export function validateWebConfig(config: WebConfig): void {
+  if (config.deploymentMode === 'hosted') {
+    if (!config.stripe.configured) {
+      throw new Error('Hosted mode requires STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, and STRIPE_PRICE_ID.');
+    }
+    if (!config.smtp.configured) {
+      throw new Error('Hosted mode requires SMTP_HOST, SMTP_PORT, and SMTP_FROM.');
+    }
+    if (!config.appBaseUrl || config.appBaseUrl === 'http://localhost:3000') {
+      throw new Error('Hosted mode requires APP_BASE_URL to be set to the public origin.');
+    }
+  }
 }
 
 export function getWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {

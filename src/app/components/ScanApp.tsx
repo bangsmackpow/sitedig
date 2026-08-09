@@ -19,6 +19,7 @@ interface ModuleView {
   tools: string[];
   paid: boolean;
   enabled: boolean;
+  accessible?: boolean;
 }
 
 const PORT_SCOPE_OPTIONS = [
@@ -50,6 +51,7 @@ export default function ScanApp() {
   });
   const [modules, setModules] = useState<ModuleView[]>([]);
   const [selectedModules, setSelectedModules] = useState<ModuleId[]>([]);
+  const [notAuthed, setNotAuthed] = useState(false);
 
   const [consentOpen, setConsentOpen] = useState(false);
   const [consentChecked, setConsentChecked] = useState(false);
@@ -59,9 +61,17 @@ export default function ScanApp() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    fetch('/api/modules', { cache: 'no-store' })
-      .then((r) => r.json())
-      .then((data: { modules?: ModuleView[] }) => setModules(data.modules ?? []))
+    fetch('/api/modules', { cache: 'no-store', credentials: 'same-origin' })
+      .then((r) => {
+        if (r.status === 401) {
+          setNotAuthed(true);
+          return null;
+        }
+        return r.json();
+      })
+      .then((data: { modules?: ModuleView[] } | null) => {
+        if (data) setModules(data.modules ?? []);
+      })
       .catch(() => setModules([]));
   }, []);
 
@@ -368,7 +378,8 @@ export default function ScanApp() {
           <div style={{ display: 'grid', gap: 10, marginTop: 8 }}>
             {modules.map((m) => {
               const selected = selectedModules.includes(m.id);
-              const disabled = !m.enabled || isBusy;
+              const locked = !m.enabled || m.accessible === false;
+              const disabled = locked || isBusy;
               return (
                 <label
                   key={m.id}
@@ -378,7 +389,7 @@ export default function ScanApp() {
                     borderRadius: 10,
                     padding: '10px 14px',
                     cursor: disabled ? 'not-allowed' : 'pointer',
-                    opacity: disabled && !m.enabled ? 0.6 : 1,
+                    opacity: locked ? 0.6 : 1,
                     alignItems: 'flex-start',
                   }}
                 >
@@ -398,6 +409,9 @@ export default function ScanApp() {
                   {!m.enabled && (
                     <span style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap', marginTop: 2 }}>🔒 not enabled on this deployment</span>
                   )}
+                  {m.enabled && m.accessible === false && (
+                    <span style={{ fontSize: 11, color: 'var(--warn)', whiteSpace: 'nowrap', marginTop: 2 }}>🔒 requires Premium</span>
+                  )}
                 </label>
               );
             })}
@@ -405,8 +419,14 @@ export default function ScanApp() {
         </div>
       )}
 
+      {notAuthed && (
+        <div className="info-box" style={{ marginTop: 16 }}>
+          Please <a className="link" href="/login">sign in</a> to run scans.
+        </div>
+      )}
+
       <div style={{ marginTop: 24 }}>
-        <button className="button" onClick={openConsent} disabled={isBusy || !target.trim()}>
+        <button className="button" onClick={openConsent} disabled={isBusy || !target.trim() || notAuthed}>
           Start scan
         </button>
       </div>

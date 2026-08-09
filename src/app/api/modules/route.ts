@@ -1,19 +1,36 @@
-import { NextResponse } from 'next/server';
-import { getModules, WorkerClientError, WorkerUnavailableError, type ModuleView } from '@/app/lib/worker-client';
+import type { NextRequest } from 'next/server';
+import { getWebConfig } from '@/shared/config';
+import { getModules, WorkerClientError, type ModuleView } from '@/app/lib/worker-client';
+import { ensureInitialized } from '@/server/bootstrap';
+import { guardUser } from '@/server/http';
+import { errorJson } from '@/server/http';
+import { canUseModule } from '@/server/entitlements';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET(): Promise<NextResponse> {
+export interface ModuleViewWithAccess extends ModuleView {
+  accessible: boolean;
+}
+
+export async function GET(req: NextRequest) {
+  await ensureInitialized();
+  const guard = await guardUser(req);
+  if (!guard.ok) return guard.response;
+
+  let modules: ModuleView[];
   try {
-    const modules = await getModules();
-    return NextResponse.json({ modules });
+    modules = await getModules();
   } catch (e) {
     if (e instanceof WorkerClientError) {
-      return NextResponse.json({ error: { code: e.code, message: e.message } }, { status: e.status });
+      return errorJson(e.message, e.status, e.code);
     }
-    if (e instanceof WorkerUnavailableError) {
-      return NextResponse.json({ modules: [] as ModuleView[] });
-    }
-    return NextResponse.json({ error: { code: 'internal', message: 'Failed to load modules.' } }, { status: 500 });
+    return errorJson('Failed to load modules.', 500, 'internal');
   }
+
+  const enabledModules = getWebConfig().enabledModules;
+  const withAccess: ModuleViewWithAccess[] = modules.map((m) => ({
+    ...m,
+    accessible: canUseModule(guard.value.user.id, guard.value.user, m.id, enabledModules),
+  }));
+  return Response.json({ modules: withAccess });
 }

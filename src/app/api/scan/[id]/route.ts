@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
 import type { PublicJobView } from '@/shared/types';
 import { getJobStatus, WorkerClientError, WorkerUnavailableError } from '@/app/lib/worker-client';
+import { ensureInitialized } from '@/server/bootstrap';
+import { guardUser } from '@/server/http';
+import { errorJson } from '@/server/http';
 
 export const dynamic = 'force-dynamic';
 
@@ -8,7 +12,10 @@ interface Ctx {
   params: Promise<{ id: string }>;
 }
 
-export async function GET(_req: Request, ctx: Ctx): Promise<NextResponse> {
+export async function GET(req: NextRequest, ctx: Ctx): Promise<NextResponse> {
+  await ensureInitialized();
+  const guard = await guardUser(req);
+  if (!guard.ok) return guard.response;
   const { id } = await ctx.params;
   try {
     const job = await getJobStatus(id);

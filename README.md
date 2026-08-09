@@ -18,14 +18,16 @@ It is **not** a vulnerability scanner. It never runs exploitation, brute force, 
 
 ## Features
 
-- **Four scan profiles** — Quick, Standard, Deep, and a bounded Custom profile, each with plain-language scope, tool, noise, and duration descriptions shown before you scan.
+- **Accounts & access control** - email/password accounts with email verification and password reset, DB-backed sessions, and an admin console. Two deployment modes: `hosted` (public multi-tenant SaaS with Stripe billing) and `self-hosted` (single-org install with an env-bootstrapped first admin).
+- **Four scan profiles** - Quick, Standard, Deep, and a bounded Custom profile, each with plain-language scope, tool, noise, and duration descriptions shown before you scan.
 - **Strict target safety** — RFC1918, loopback, link-local, multicast, reserved, documentation, IPv6 ULA, and cloud-metadata addresses are rejected. DNS is re-validated before *every* tool, DNS rebinding is detected, and every HTTP redirect destination is safety-checked.
 - **Authorization gate** — a consent modal with a required checkbox must be acknowledged for **every** scan.
 - **Lifecycle transparency** — simple `queued → running → completed / failed / cancelled` status, with the option to cancel a queued or running scan.
 - **Separate downloads** — one-click PDF and Markdown, generated from the same normalized report model (no content drift).
 - **Hard limits** — configurable concurrency, queue depth, per-tool output caps, and a 5-minute maximum scan duration enforced with process-group cleanup.
+- **Entitlement-gated Premium** — paid add-on modules require an active Premium entitlement, granted by Stripe subscriptions (hosted) or by admins (self-hosted), and are gated again server-side before jobs reach the worker.
 - **Server-side logging** — verbose, structured logs to Docker/Portainer; logs are never exposed in the UI or reports.
-- **No persistence** — no database, no Redis, no stored history. Artifacts are deleted after download or TTL sweep.
+- **SQLite persistence** — identities, sessions, entitlements, and billing state only. No scan history or report storage.
 - **One image, two roles** — Compose runs the same GHCR image as `web` and `worker` services.
 
 ## Architecture
@@ -61,7 +63,7 @@ npm run dev:worker
 npm run dev
 ```
 
-Set `WORKER_URL=http://localhost:8081` and (optionally) `SCAN_SERVICE_TOKEN` in your environment.
+Set `WORKER_URL=http://localhost:8081` and (optionally) `SCAN_SERVICE_TOKEN` in your environment. On first web startup, set `INITIAL_ADMIN_EMAIL`/`INITIAL_ADMIN_PASSWORD` to bootstrap the first admin account (self-hosted mode). Running scans now requires signing in.
 
 > Local Windows/macOS dev without `nmap`/`whatweb`/`wpscan` will still boot; scanner steps fail gracefully and are recorded as tool errors in the report. The Docker image includes all tools.
 
@@ -169,7 +171,13 @@ docker compose pull && docker compose up -d
 | `ARTIFACT_TTL_MINUTES` | worker | `30` | Minutes before finished artifacts are swept |
 | `LOG_LEVEL` | both | `info` | `debug`, `info`, `warn`, `error`, `silent` |
 | `APP_VERSION` | both | `0.1.0` | Version string reported in logs |
-| `ENABLED_MODULES` | worker | *(empty)* | Comma-separated paid module ids to unlock |
+| `DEPLOYMENT_MODE` | web | `self-hosted` | `hosted` (public SaaS) or `self-hosted` (single org) |
+| `DATABASE_PATH` | web | `/data/sitedig.sqlite` | SQLite file for accounts, sessions, entitlements, billing |
+| `APP_BASE_URL` | web | `http://localhost:3000` | Public origin used in emails and billing redirects |
+| `INITIAL_ADMIN_EMAIL` / `INITIAL_ADMIN_PASSWORD` | web | *(empty)* | Bootstrap the first admin (self-hosted). Used only when no admin exists |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM` | web | *(empty)* | Email delivery for verification / password reset. Required in `hosted` mode |
+| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_ID`, `STRIPE_PORTAL_RETURN_URL` | web | *(empty)* | Stripe billing (hosted mode). `portal_return_url` optional, defaults to `/account` |
+| `ENABLED_MODULES` | both | *(empty)* | Comma-separated paid module ids to unlock (deployment ceiling) |
 | `WPSCAN_API_TOKEN` | worker | *(empty)* | WPScan API token for plugin/theme vulnerability data |
 | `NUCLEI_TEMPLATES` | worker | `http/technologies/tech-detect.yaml,http/exposures/configs/git-config.yaml,ssl/tls-version.yaml,ssl/deprecated-tls.yaml,ssl/self-signed-ssl.yaml,ssl/expired-ssl.yaml,ssl/weak-cipher-suites.yaml` | Nuclei template allowlist |
 | `NUCLEI_TEMPLATES_DIR` | worker | `/opt/nuclei-templates` | Nuclei template directory |
@@ -199,7 +207,7 @@ All profiles share one command pipeline, so safety rules cannot be bypassed by p
 
 ## Paid add-on modules
 
-SiteDig ships a set of **env-gated add-on modules** (the paid-feature architecture). Set `ENABLED_MODULES` to a comma-separated list to unlock them; an empty value keeps the detection-only free behavior. Modules requested from the UI are rejected server-side with `403 module_not_enabled` when disabled.
+SiteDig ships a set of **Premium add-on modules**. A user must hold an active Premium entitlement to run them, and an admin must enable the module on the deployment (`ENABLED_MODULES` acts as the ceiling). In `hosted` mode, Premium is granted by an active Stripe subscription (the billing webhook is the source of truth); in `self-hosted` mode, admins grant Premium from the admin console. Requests for modules a user cannot access are rejected server-side with `403 module_not_enabled` or `403 premium_required` before any job reaches the worker.
 
 | Module | Env id | Tools | What it adds |
 | --- | --- | --- | --- |
@@ -236,12 +244,12 @@ Severity ratings are **inferred** from observed evidence and clearly flagged as 
 ```bash
 npm run lint           # next lint (web + shared)
 npm run typecheck      # tsc (web) + tsc (worker)
-npm test               # vitest — 71 tests, including stub-tool integration tests
+npm test               # vitest — 123 tests, including stub-tool integration tests
 npm run build          # worker compile + Next.js production build
 npm run validate:compose
 ```
 
-Test scanners are Node stubs under `tests/fixtures/stub-bin/` — the test suite never scans real targets.
+Test scanners are Node stubs under `tests/fixtures/stub-bin/` — the test suite never scans real targets. Auth/billing tests use an isolated temporary SQLite file with mocked SMTP and Stripe clients.
 
 ## Security notes
 
@@ -253,12 +261,12 @@ Test scanners are Node stubs under `tests/fixtures/stub-bin/` — the test suite
 ## Known limitations
 
 - Detection-oriented only — no exploit validation or vulnerability confirmation.
-- External vulnerability APIs (e.g. WPScan API tokens) are intentionally not integrated.
+- External vulnerability APIs beyond the optional WPScan API token (e.g. Shodan, Censys) are not integrated.
 - `npm audit` reports transitive `postcss`/`sharp` advisories from the Next.js 15 toolchain; these are build/runtime-image-optimization dependencies this app does not exercise. Upgrading to Next 16 (a breaking change) resolves them and is a recommended follow-up.
 
 ## Roadmap (explicitly deferred)
 
-Authentication & accounts, persistent scan history, Redis-backed queues, CIDR scanning, scan comparison/diffs, custom branding, UDP/all-port scanning, and external vulnerability APIs.
+Persistent scan history, Redis-backed queues, CIDR scanning, scan comparison/diffs, custom branding, UDP/all-port scanning, and additional external vulnerability APIs.
 
 ## License
 

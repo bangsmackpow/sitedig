@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next';
+import Link from 'next/link';
 import { APP_NAME, APP_VERSION } from '@/shared/constants';
 import './globals.css';
 
@@ -20,8 +21,21 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <header className="topbar">
           <div className="topbar-inner">
-            <span className="brand">{APP_NAME}</span>
+            <Link href="/" className="brand" style={{ textDecoration: 'none' }}>
+              {APP_NAME}
+            </Link>
             <span className="brand-sub">authorized reconnaissance scanner</span>
+            <nav style={{ marginLeft: 'auto', display: 'flex', gap: 16 }}>
+              <Link className="link" href="/login">
+                Login
+              </Link>
+              <Link className="link" href="/account">
+                Account
+              </Link>
+              <Link className="link" href="/admin">
+                Admin
+              </Link>
+            </nav>
           </div>
         </header>
         <main className="main">{children}</main>

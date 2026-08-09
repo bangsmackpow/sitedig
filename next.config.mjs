@@ -7,7 +7,7 @@ const nextConfig = {
   images: { unoptimized: true },
   // The worker owns all scanner subprocess execution. The web service must
   // never execute scanner commands; it only talks to the worker over HTTP.
-  serverExternalPackages: [],
+  serverExternalPackages: ['better-sqlite3'],
   async headers() {
     return [
       {

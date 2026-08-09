@@ -18,6 +18,24 @@ services:
       WEB_PORT: "3000"
       LOG_LEVEL: ${LOG_LEVEL:-info}
       APP_VERSION: ${SITEDIG_TAG:-latest}
+      DEPLOYMENT_MODE: ${DEPLOYMENT_MODE:-self-hosted}
+      DATABASE_PATH: ${DATABASE_PATH:-/data/sitedig.sqlite}
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
+      INITIAL_ADMIN_EMAIL: ${INITIAL_ADMIN_EMAIL:-}
+      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      STRIPE_PRICE_ID: ${STRIPE_PRICE_ID:-}
+      STRIPE_PORTAL_RETURN_URL: ${STRIPE_PORTAL_RETURN_URL:-}
+      ENABLED_MODULES: ${ENABLED_MODULES:-}
+    volumes:
+      - sitedig-data:/data
     networks:
       - backend
     restart: unless-stopped
@@ -71,3 +89,6 @@ services:
 networks:
   backend:
     external: true
+
+volumes:
+  sitedig-data:

@@ -1,5 +1,9 @@
 import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
 import { downloadArtifact, WorkerClientError, WorkerUnavailableError } from '@/app/lib/worker-client';
+import { ensureInitialized } from '@/server/bootstrap';
+import { guardUser } from '@/server/http';
+import { errorJson } from '@/server/http';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,7 +16,10 @@ const MIME: Record<string, string> = {
   markdown: 'text/markdown; charset=utf-8',
 };
 
-export async function GET(_req: Request, ctx: Ctx): Promise<NextResponse> {
+export async function GET(req: NextRequest, ctx: Ctx): Promise<NextResponse> {
+  await ensureInitialized();
+  const guard = await guardUser(req);
+  if (!guard.ok) return guard.response;
   const { id, format } = await ctx.params;
   if (format !== 'pdf' && format !== 'markdown') {
     return NextResponse.json({ error: { code: 'bad_format', message: 'Unsupported report format.' } }, { status: 400 });

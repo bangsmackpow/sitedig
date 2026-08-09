@@ -23,6 +23,7 @@ export interface ModuleView {
   tools: string[];
   paid: boolean;
   enabled: boolean;
+  accessible?: boolean;
 }
 
 export class WorkerClientError extends Error {
