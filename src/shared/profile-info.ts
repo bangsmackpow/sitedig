@@ -24,6 +24,22 @@ function toolLabel(tool: ToolName): string {
       return 'HTTP headers';
     case 'tls':
       return 'TLS certificate inspection';
+    case 'subfinder':
+      return 'subfinder';
+    case 'dnsx':
+      return 'dnsx';
+    case 'rdap':
+      return 'WHOIS (RDAP)';
+    case 'nuclei':
+      return 'nuclei';
+    case 'retire':
+      return 'retire.js';
+    case 'testssl':
+      return 'testssl.sh';
+    case 'feroxbuster':
+      return 'feroxbuster';
+    case 'osv':
+      return 'OSV';
   }
 }
 

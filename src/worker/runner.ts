@@ -20,7 +20,17 @@ export interface RunOptions {
   signal?: AbortSignal;
 }
 
-const SUBPROCESS_TOOLS: ToolName[] = ['nmap', 'whatweb', 'wpscan'];
+const SUBPROCESS_TOOLS: ToolName[] = [
+  'nmap',
+  'whatweb',
+  'wpscan',
+  'subfinder',
+  'dnsx',
+  'nuclei',
+  'retire',
+  'testssl',
+  'feroxbuster',
+];
 
 function resolveCommand(tool: ToolName, deps: RunnerDeps): { file: string; prefix: string[] } {
   if (deps.binDir) {
@@ -149,4 +159,8 @@ export const VERSION_PROBE_ARGS: Partial<Record<ToolName, string[]>> = {
   nmap: ['--version'],
   whatweb: ['--version'],
   wpscan: ['--version'],
+  subfinder: ['-version'],
+  dnsx: ['-version'],
+  nuclei: ['-version'],
+  feroxbuster: ['--version'],
 };

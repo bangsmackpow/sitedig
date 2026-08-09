@@ -1,0 +1,9 @@
+admin
+robots.txt
+wp-admin
+wp-login.php
+backup
+config.php
+.env
+.git
+.htaccess

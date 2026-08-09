@@ -169,6 +169,11 @@ docker compose pull && docker compose up -d
 | `ARTIFACT_TTL_MINUTES` | worker | `30` | Minutes before finished artifacts are swept |
 | `LOG_LEVEL` | both | `info` | `debug`, `info`, `warn`, `error`, `silent` |
 | `APP_VERSION` | both | `0.1.0` | Version string reported in logs |
+| `ENABLED_MODULES` | worker | *(empty)* | Comma-separated paid module ids to unlock |
+| `WPSCAN_API_TOKEN` | worker | *(empty)* | WPScan API token for plugin/theme vulnerability data |
+| `NUCLEI_TEMPLATES` | worker | `http/misconfiguration,http/exposed-panels,http/headers,ssl,exposures/configs` | Nuclei template allowlist |
+| `NUCLEI_TEMPLATES_DIR` | worker | `/opt/nuclei-templates` | Nuclei template directory |
+| `CONTENT_WORDLIST` | worker | `/opt/sitedig/wordlists/common.txt` | Wordlist for content discovery |
 
 ## Target safety model
 
@@ -191,6 +196,20 @@ These checks live in `src/shared/net.ts` and are heavily unit-tested.
 | **Custom** | common / top100 / top1000 | user-selected | Bounded controls only — no raw args |
 
 All profiles share one command pipeline, so safety rules cannot be bypassed by profile choice.
+
+## Paid add-on modules
+
+SiteDig ships a set of **env-gated add-on modules** (the paid-feature architecture). Set `ENABLED_MODULES` to a comma-separated list to unlock them; an empty value keeps the detection-only free behavior. Modules requested from the UI are rejected server-side with `403 module_not_enabled` when disabled.
+
+| Module | Env id | Tools | What it adds |
+| --- | --- | --- | --- |
+| Asset & DNS Discovery | `asset-discovery` | subfinder, dnsx, WHOIS (RDAP) | Passive subdomain enumeration, DNS records, registration intel |
+| Vulnerability Scan | `vuln-scan` | nuclei (curated allowlist), retire.js | Template-driven detection + vulnerable-JS checks |
+| TLS Hardening Audit | `tls-hardening` | testssl.sh | Protocols, ciphers, known TLS weaknesses |
+| Content Discovery | `content-discovery` | feroxbuster | Rate-limited directory/path discovery against a bounded wordlist |
+| CVE Context | `cve-context` | OSV API | Enrich detected technologies with known-CVE counts |
+
+Each module's tools are guarded by argument allowlists (`assertApprovedArgs`), per-tool timeouts, and non-destructive template/wordlist policies. The vulnerability-scan module runs **only** the curated `NUCLEI_TEMPLATES` allowlist.
 
 ## Report contents
 

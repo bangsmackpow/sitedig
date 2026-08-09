@@ -5,6 +5,7 @@ import path from 'node:path';
 import { AddressInfo } from 'node:net';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { WorkerConfig } from '../src/shared/config';
+import type { ModuleId } from '../src/shared/types';
 import { createLogger } from '../src/shared/logger';
 import { ScannerService } from '../src/worker/scanner';
 import { startWorkerServer } from '../src/worker/index';
@@ -26,6 +27,10 @@ function makeConfig(overrides: Partial<WorkerConfig> = {}): WorkerConfig {
     artifactDir: fs.mkdtempSync(path.join(os.tmpdir(), 'sitedig-test-')),
     artifactTtlMinutes: 30,
     scannerBinDir: BIN,
+    enabledModules: new Set<ModuleId>(),
+    wpscanApiToken: '',
+    nucleiTemplates: [],
+    wordlistPath: '/opt/sitedig/wordlists/common.txt',
     ...overrides,
   };
 }
@@ -186,5 +191,23 @@ describe('worker HTTP server', () => {
   it('reports an unknown job as not found', async () => {
     const { status } = await json('/jobs/does-not-exist');
     expect(status).toBe(404);
+  });
+
+  it('lists modules with enabled flags', async () => {
+    const res = await fetch(`${baseUrl}/modules`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { modules: Array<{ id: string; enabled: boolean }> };
+    expect(body.modules.some((m) => m.id === 'asset-discovery')).toBe(true);
+    expect(body.modules.every((m) => m.enabled === false)).toBe(true);
+  });
+
+  it('rejects scans requesting a disabled paid module', async () => {
+    const { status, body } = await json('/jobs', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ target: 'example.com', profile: 'quick', consent: true, modules: ['asset-discovery'] }),
+    });
+    expect(status).toBe(403);
+    expect((body as { error?: { code?: string } }).error?.code).toBe('module_not_enabled');
   });
 });

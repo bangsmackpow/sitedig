@@ -78,6 +78,36 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Non-root application user. HOME is set so Ruby tools (wpscan) can write caches.
 RUN groupadd -r scanner && useradd -r -g scanner -d /app scanner
 
+# --- Paid module tools --------------------------------------------------
+# subfinder, dnsx, nuclei (ProjectDiscovery), feroxbuster, testssl.sh, retire.js.
+# Pinned versions; static binaries extracted from GitHub release archives.
+ARG SUBFINDER_VERSION=v2.6.7
+ARG DNSX_VERSION=v1.1.7
+ARG NUCLEI_VERSION=v3.3.2
+ARG FEROXBUSTER_VERSION=v2.11.0
+ARG TESTSSL_VERSION=v3.2.2
+RUN apt-get update && apt-get install -y --no-install-recommends unzip \
+    && cd /tmp \
+    && curl -fsSL "https://github.com/projectdiscovery/subfinder/releases/download/${SUBFINDER_VERSION}/subfinder_${SUBFINDER_VERSION#v}_linux_amd64.zip" -o subfinder.zip \
+    && curl -fsSL "https://github.com/projectdiscovery/dnsx/releases/download/${DNSX_VERSION}/dnsx_${DNSX_VERSION#v}_linux_amd64.zip" -o dnsx.zip \
+    && curl -fsSL "https://github.com/projectdiscovery/nuclei/releases/download/${NUCLEI_VERSION}/nuclei_${NUCLEI_VERSION#v}_linux_amd64.zip" -o nuclei.zip \
+    && curl -fsSL "https://github.com/epi052/feroxbuster/releases/download/${FEROXBUSTER_VERSION}/x86_64-linux-feroxbuster.zip" -o ferox.zip \
+    && curl -fsSL "https://github.com/drwetter/testssl.sh/archive/refs/tags/${TESTSSL_VERSION}.tar.gz" -o testssl.tar.gz \
+    && for f in subfinder.zip dnsx.zip nuclei.zip ferox.zip; do unzip -o "$f"; done \
+    && tar xzf testssl.tar.gz \
+    && mv "testssl.sh-${TESTSSL_VERSION#v}" /opt/testssl \
+    && chmod +x subfinder dnsx nuclei feroxbuster \
+    && mv subfinder dnsx nuclei feroxbuster /usr/local/bin/ \
+    # testssl.sh must run via bash with its own dir intact; use a shim.
+    && printf '#!/bin/sh\nexec bash /opt/testssl/testssl.sh "$@"\n' > /usr/local/bin/testssl \
+    && chmod +x /usr/local/bin/testssl \
+    && npm install -g retire --silent \
+    # Curated, non-destructive Nuclei template set (allowlist).
+    && mkdir -p /opt/nuclei-templates \
+    && HOME=/app nuclei -update-directory /opt/nuclei-templates -update-templates >/dev/null 2>&1 || true \
+    && rm -rf /tmp/* /var/lib/apt/lists/* \
+    && apt-get purge -y unzip
+
 WORKDIR /app
 COPY --from=build /app/package.json /app/package-lock.json ./
 # Production dependencies only. `--omit=optional` drops Next.js's bundled
@@ -89,9 +119,11 @@ COPY --from=build /app/.next ./.next
 COPY --from=build /app/dist-worker ./dist-worker
 COPY --from=build /app/next.config.mjs ./
 COPY --from=build /app/public ./public
+# Content-discovery wordlist.
+COPY --chown=scanner:scanner assets/wordlists/common.txt /opt/sitedig/wordlists/common.txt
 
 # Artifact workspace owned by the scanner user.
-RUN mkdir -p /tmp/sitedig-artifacts && chown -R scanner:scanner /app /tmp/sitedig-artifacts
+RUN mkdir -p /tmp/sitedig-artifacts && chown -R scanner:scanner /app /tmp/sitedig-artifacts /opt/sitedig
 
 USER scanner
 ENV HOME=/app

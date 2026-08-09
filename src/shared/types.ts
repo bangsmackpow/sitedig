@@ -2,7 +2,23 @@ export type ScanProfile = 'quick' | 'standard' | 'deep' | 'custom';
 
 export type PortScope = 'common' | 'top100' | 'top1000';
 
-export type ToolName = 'nmap' | 'whatweb' | 'wpscan' | 'http' | 'tls';
+export type ToolName =
+  | 'nmap'
+  | 'whatweb'
+  | 'wpscan'
+  | 'http'
+  | 'tls'
+  | 'subfinder'
+  | 'dnsx'
+  | 'rdap'
+  | 'nuclei'
+  | 'retire'
+  | 'testssl'
+  | 'feroxbuster'
+  | 'osv';
+
+/** Paid add-on modules. Each maps to a set of tools and is env-gated. */
+export type ModuleId = 'asset-discovery' | 'vuln-scan' | 'tls-hardening' | 'content-discovery' | 'cve-context';
 
 export type JobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
 
@@ -38,11 +54,13 @@ export interface ScanRequestInput {
   profile: ScanProfile;
   consent: boolean;
   custom?: CustomScanOptions;
+  /** Paid add-on modules requested for this scan. */
+  modules?: ModuleId[];
 }
 
 export interface Finding {
   id: string;
-  category: 'exposure' | 'misconfiguration' | 'outdated-technology' | 'wordpress' | 'informational';
+  category: 'exposure' | 'misconfiguration' | 'outdated-technology' | 'wordpress' | 'vulnerability' | 'informational';
   severity: 'informational' | 'low' | 'medium' | 'high' | 'critical';
   title: string;
   description: string;
@@ -114,6 +132,62 @@ export interface ReportMeta {
   warnings: string[];
 }
 
+// --- Paid module observation types -----------------------------------------
+
+export interface DiscoveredSubdomain {
+  host: string;
+  source: string | null;
+}
+
+export interface DnsRecord {
+  type: string;
+  name: string;
+  value: string;
+}
+
+export interface WhoisInfo {
+  registrar: string | null;
+  creationDate: string | null;
+  updateDate: string | null;
+  expiryDate: string | null;
+  status: string[];
+  nameservers: string[];
+  error: string | null;
+}
+
+export interface VulnerabilityFinding {
+  id: string;
+  templateId: string | null;
+  severity: 'info' | 'low' | 'medium' | 'high' | 'critical';
+  title: string;
+  description: string;
+  matchedAt: string | null;
+  source: 'nuclei' | 'retire';
+}
+
+export interface TlsHardeningResult {
+  finished: boolean;
+  summary: string[];
+  weaknesses: Array<{ name: string; detail: string; severity: string }>;
+  error: string | null;
+}
+
+export interface DiscoveredPath {
+  path: string;
+  status: number;
+  size: number | null;
+  contentType: string | null;
+}
+
+export interface CveContextFinding {
+  id: string;
+  ecosystem: string;
+  name: string;
+  version: string;
+  cveCount: number;
+  severities: Record<string, number>;
+}
+
 export interface ReportModel {
   meta: ReportMeta;
   executiveSummary: string;
@@ -123,6 +197,13 @@ export interface ReportModel {
   tls: TlsObservation | null;
   technologies: Array<{ name: string; version: string | null }>;
   wordpress: { detected: boolean; wpscanRan: boolean; notes: string[] } | null;
+  subdomains: DiscoveredSubdomain[];
+  dnsRecords: DnsRecord[];
+  whois: WhoisInfo | null;
+  vulnerabilities: VulnerabilityFinding[];
+  tlsHardening: TlsHardeningResult | null;
+  discoveredPaths: DiscoveredPath[];
+  cveContext: CveContextFinding[];
   toolResults: ToolResultRecord[];
   limitations: string[];
 }
@@ -140,6 +221,7 @@ export interface Job {
   target: NormalizedTarget;
   profile: ScanProfile;
   custom: CustomScanOptions | null;
+  modules: ModuleId[];
   createdAt: string;
   startedAt: string | null;
   finishedAt: string | null;

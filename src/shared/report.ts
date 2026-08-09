@@ -14,6 +14,7 @@ export const CATEGORY_LABELS: Record<Finding['category'], string> = {
   misconfiguration: 'Misconfiguration',
   'outdated-technology': 'Outdated Technology',
   wordpress: 'WordPress Finding',
+  vulnerability: 'Vulnerability',
   informational: 'Informational',
 };
 
@@ -210,6 +211,109 @@ export function renderMarkdown(report: ReportModel): string {
     lines.push(`- **WPScan run:** ${report.wordpress.wpscanRan}`);
     for (const n of report.wordpress.notes) {
       lines.push(`- ${n}`);
+    }
+    lines.push('');
+  }
+
+  // Asset & DNS discovery
+  if (report.subdomains.length > 0) {
+    lines.push('## Subdomains Discovered');
+    lines.push('');
+    lines.push('| Subdomain | Source |');
+    lines.push('| --- | --- |');
+    for (const s of report.subdomains.slice(0, 100)) {
+      lines.push(`| ${escMd(s.host)} | ${escMd(s.source ?? 'n/a')} |`);
+    }
+    if (report.subdomains.length > 100) {
+      lines.push(`| _… and ${report.subdomains.length - 100} more_ | |`);
+    }
+    lines.push('');
+  }
+
+  if (report.dnsRecords.length > 0) {
+    lines.push('## DNS Records');
+    lines.push('');
+    lines.push('| Type | Name | Value |');
+    lines.push('| --- | --- | --- |');
+    for (const r of report.dnsRecords.slice(0, 100)) {
+      lines.push(`| ${escMd(r.type)} | ${escMd(r.name)} | ${escMd(r.value)} |`);
+    }
+    if (report.dnsRecords.length > 100) {
+      lines.push(`| _… and ${report.dnsRecords.length - 100} more_ | | |`);
+    }
+    lines.push('');
+  }
+
+  if (report.whois) {
+    lines.push('## WHOIS (Registration)');
+    lines.push('');
+    const w = report.whois;
+    if (w.error) {
+      lines.push(`WHOIS lookup could not be completed: ${w.error}`);
+    } else {
+      lines.push(`- **Registrar:** ${escMd(w.registrar ?? 'n/a')}`);
+      lines.push(`- **Creation date:** ${w.creationDate ?? 'n/a'}`);
+      lines.push(`- **Update date:** ${w.updateDate ?? 'n/a'}`);
+      lines.push(`- **Expiry date:** ${w.expiryDate ?? 'n/a'}`);
+      if (w.nameservers.length > 0) {
+        lines.push(`- **Nameservers:** ${w.nameservers.map(escMd).join(', ')}`);
+      }
+    }
+    lines.push('');
+  }
+
+  // Vulnerability findings
+  if (report.vulnerabilities.length > 0) {
+    lines.push('## Vulnerability Findings');
+    lines.push('');
+    lines.push('| Severity | Title | Matched |');
+    lines.push('| --- | --- | --- |');
+    for (const v of report.vulnerabilities) {
+      lines.push(`| ${v.severity.toUpperCase()} | ${escMd(v.title)} | ${v.matchedAt ? escMd(v.matchedAt) : 'n/a'} |`);
+    }
+    lines.push('');
+  }
+
+  // TLS hardening
+  if (report.tlsHardening) {
+    lines.push('## TLS Hardening (testssl.sh)');
+    lines.push('');
+    const t = report.tlsHardening;
+    if (t.error) {
+      lines.push(`testssl.sh could not complete: ${t.error}`);
+    } else if (t.weaknesses.length > 0) {
+      for (const w of t.weaknesses) {
+        lines.push(`- **[${w.severity}] ${escMd(w.name)}** — ${escMd(w.detail)}`);
+      }
+    } else {
+      lines.push('No notable TLS weaknesses were reported by testssl.sh.');
+    }
+    lines.push('');
+  }
+
+  // Content discovery
+  if (report.discoveredPaths.length > 0) {
+    lines.push('## Discovered Paths (Content Discovery)');
+    lines.push('');
+    lines.push('| Status | Path | Size | Type |');
+    lines.push('| --- | --- | --- | --- |');
+    for (const p of report.discoveredPaths.slice(0, 100)) {
+      lines.push(`| ${p.status} | ${escMd(p.path)} | ${p.size ?? 'n/a'} | ${escMd(p.contentType ?? 'n/a')} |`);
+    }
+    if (report.discoveredPaths.length > 100) {
+      lines.push(`| _… and ${report.discoveredPaths.length - 100} more_ | | | |`);
+    }
+    lines.push('');
+  }
+
+  // CVE context
+  if (report.cveContext.length > 0) {
+    lines.push('## CVE Context (OSV)');
+    lines.push('');
+    lines.push('| Package | Version | CVEs | Critical/High |');
+    lines.push('| --- | --- | --- | --- |');
+    for (const c of report.cveContext) {
+      lines.push(`| ${escMd(c.name)} | ${escMd(c.version)} | ${c.cveCount} | ${c.severities.critical + c.severities.high} |`);
     }
     lines.push('');
   }

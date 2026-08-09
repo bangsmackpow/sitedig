@@ -24,6 +24,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       profile: parsed.data.profile,
       consent: parsed.data.consent,
       custom: parsed.data.custom,
+      modules: parsed.data.modules,
     });
     return NextResponse.json(result, { status: 201 });
   } catch (e) {

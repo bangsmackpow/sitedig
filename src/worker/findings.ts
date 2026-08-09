@@ -1,5 +1,5 @@
 import { SECURITY_HEADERS } from '../shared/constants';
-import type { DiscoveredPort, Finding, HttpObservation, TlsObservation } from '../shared/types';
+import type { CveContextFinding, DiscoveredPath, DiscoveredPort, Finding, HttpObservation, TlsObservation, VulnerabilityFinding } from '../shared/types';
 import type { WpscanResult } from './parsers';
 
 const DB_PORTS = new Set([1433, 1521, 3306, 5432, 6379, 9200, 11211, 27017]);
@@ -14,6 +14,9 @@ export interface FindingsInput {
   wpscanRan: boolean;
   wpscanError: string | null;
   wpscanExitNote: string | null;
+  vulnerabilities: VulnerabilityFinding[];
+  discoveredPaths: DiscoveredPath[];
+  cveContext: CveContextFinding[];
   host: string;
   path: string;
 }
@@ -233,6 +236,73 @@ export function buildFindings(input: FindingsInput): Finding[] {
       confidence: 'high',
       verified: true,
       remediation: 'Keep WordPress core, themes, and plugins updated and remove exposed files (e.g. readme.txt).',
+    });
+  }
+
+  // Vulnerability findings (nuclei / retire.js)
+  const sevMap: Record<VulnerabilityFinding['severity'], Finding['severity']> = {
+    info: 'informational',
+    low: 'low',
+    medium: 'medium',
+    high: 'high',
+    critical: 'critical',
+  };
+  for (const v of input.vulnerabilities) {
+    findings.push({
+      id: nextId(),
+      category: 'vulnerability',
+      severity: sevMap[v.severity] ?? 'medium',
+      title: v.title,
+      description: v.description || `Detected by ${v.source}${v.templateId ? ` (template ${v.templateId})` : ''}.`,
+      evidence: [v.templateId ? `template: ${v.templateId}` : `source: ${v.source}`, v.matchedAt ? `matched: ${v.matchedAt}` : ''].filter(Boolean),
+      affected: v.matchedAt ?? `${input.host}${input.path}`,
+      confidence: 'medium',
+      verified: true,
+      remediation: 'Investigate the finding and apply the vendor fix or mitigating control.',
+    });
+  }
+
+  // Content discovery paths of interest
+  const interestingStatus = (s: number) => s >= 200 && s < 300 && s !== 204;
+  const interestingPaths = input.discoveredPaths.filter((p) => interestingStatus(p.status));
+  if (interestingPaths.length > 0) {
+    findings.push({
+      id: nextId(),
+      category: 'exposure',
+      severity: 'informational',
+      title: `${interestingPaths.length} discoverable path(s) found`,
+      description: 'Content discovery found HTTP 2xx responses for the following paths.',
+      evidence: interestingPaths.slice(0, 20).map((p) => `${p.status} ${p.path}`),
+      affected: `${input.host}${input.path}`,
+      confidence: 'high',
+      verified: true,
+      remediation: 'Review each discovered path and restrict access to anything not intended to be public.',
+    });
+  }
+
+  // CVE context for detected technologies
+  for (const c of input.cveContext) {
+    const total = c.cveCount;
+    const crit = c.severities.critical + c.severities.high;
+    findings.push({
+      id: nextId(),
+      category: 'outdated-technology',
+      severity: crit > 0 ? 'high' : c.severities.medium > 0 ? 'medium' : 'low',
+      title: `${c.name} ${c.version} has ${total} known CVE(s)`,
+      description: `${c.ecosystem} package ${c.name} ${c.version} was fingerprinted on the target and maps to ${total} known vulnerability record(s) in OSV.`,
+      evidence: [
+        `ecosystem: ${c.ecosystem}`,
+        `package: ${c.name}`,
+        `version: ${c.version}`,
+        `cve_count: ${total}`,
+        ...Object.entries(c.severities)
+          .filter(([, n]) => n > 0)
+          .map(([k, n]) => `${k}: ${n}`),
+      ],
+      affected: `${input.host}${input.path}`,
+      confidence: 'medium',
+      verified: true,
+      remediation: `Upgrade ${c.name} to a patched version and verify no conflicting plugins/extensions.`,
     });
   }
 

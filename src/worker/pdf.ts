@@ -37,6 +37,11 @@ export function renderPdf(report: ReportModel, outPath: string): Promise<void> {
     tlsSection(doc, report);
     techSection(doc, report);
     wordpressSection(doc, report);
+    assetDiscoverySection(doc, report);
+    vulnerabilitiesSection(doc, report);
+    tlsHardeningSection(doc, report);
+    contentDiscoverySection(doc, report);
+    cveContextSection(doc, report);
     toolsSection(doc, report);
     limitationsSection(doc, report);
     footer(doc, report);
@@ -190,6 +195,96 @@ function wordpressSection(doc: PDFKit.PDFDocument, report: ReportModel) {
     doc.font('Courier').fontSize(9).fillColor(COLORS.muted).text(`- ${n}`, MARGIN + 12, doc.y, { width: CONTENT_WIDTH - 12 });
   }
   doc.moveDown();
+}
+
+function assetDiscoverySection(doc: PDFKit.PDFDocument, report: ReportModel) {
+  if (report.subdomains.length === 0 && report.dnsRecords.length === 0 && !report.whois) return;
+  sectionTitle(doc, 'Asset & DNS Discovery');
+  if (report.subdomains.length > 0) {
+    doc.font('Helvetica-Bold').fontSize(10).fillColor(COLORS.primary).text('Subdomains', MARGIN, doc.y, { width: CONTENT_WIDTH });
+    doc.moveDown(0.3);
+    table(doc, ['Subdomain', 'Source'], report.subdomains.slice(0, 50).map((s) => [s.host, s.source ?? 'n/a']));
+    if (report.subdomains.length > 50) {
+      doc.font('Helvetica').fontSize(9).fillColor(COLORS.muted).text(`… and ${report.subdomains.length - 50} more`, MARGIN, doc.y, { width: CONTENT_WIDTH });
+      doc.moveDown();
+    }
+  }
+  if (report.dnsRecords.length > 0) {
+    doc.font('Helvetica-Bold').fontSize(10).fillColor(COLORS.primary).text('DNS Records', MARGIN, doc.y, { width: CONTENT_WIDTH });
+    doc.moveDown(0.3);
+    table(doc, ['Type', 'Name', 'Value'], report.dnsRecords.slice(0, 50).map((r) => [r.type, r.name, r.value]));
+    if (report.dnsRecords.length > 50) {
+      doc.font('Helvetica').fontSize(9).fillColor(COLORS.muted).text(`… and ${report.dnsRecords.length - 50} more`, MARGIN, doc.y, { width: CONTENT_WIDTH });
+      doc.moveDown();
+    }
+  }
+  if (report.whois) {
+    const w = report.whois;
+    doc.font('Helvetica-Bold').fontSize(10).fillColor(COLORS.primary).text('WHOIS', MARGIN, doc.y, { width: CONTENT_WIDTH });
+    doc.moveDown(0.3);
+    if (w.error) {
+      doc.font('Helvetica').fontSize(9).fillColor(COLORS.muted).text(`WHOIS lookup could not be completed: ${w.error}`, MARGIN, doc.y, { width: CONTENT_WIDTH });
+    } else {
+      kvRow(doc, 'Registrar', w.registrar ?? 'n/a');
+      kvRow(doc, 'Creation', w.creationDate ?? 'n/a');
+      kvRow(doc, 'Expiry', w.expiryDate ?? 'n/a');
+      if (w.nameservers.length > 0) kvRow(doc, 'Nameservers', w.nameservers.join(', '));
+    }
+  }
+  doc.moveDown();
+}
+
+function vulnerabilitiesSection(doc: PDFKit.PDFDocument, report: ReportModel) {
+  if (report.vulnerabilities.length === 0) return;
+  sectionTitle(doc, 'Vulnerability Findings');
+  const rows = report.vulnerabilities.map((v) => [v.severity.toUpperCase(), v.title, v.matchedAt ?? 'n/a']);
+  table(doc, ['Severity', 'Finding', 'Matched'], rows);
+  doc.moveDown();
+}
+
+function tlsHardeningSection(doc: PDFKit.PDFDocument, report: ReportModel) {
+  const t = report.tlsHardening;
+  if (!t) return;
+  sectionTitle(doc, 'TLS Hardening (testssl.sh)');
+  if (t.error) {
+    doc.font('Helvetica').fontSize(9).fillColor(COLORS.muted).text(`testssl.sh could not complete: ${t.error}`, MARGIN, doc.y, { width: CONTENT_WIDTH });
+  } else if (t.weaknesses.length > 0) {
+    for (const w of t.weaknesses) {
+      doc.fillColor(severityColorForTls(w.severity)).font('Helvetica-Bold').fontSize(9).text(`[${w.severity}] ${w.name}`, MARGIN, doc.y, { width: CONTENT_WIDTH });
+      doc.font('Helvetica').fontSize(8).fillColor(COLORS.text).text(w.detail, MARGIN + 10, doc.y, { width: CONTENT_WIDTH - 10 });
+      doc.moveDown(0.2);
+    }
+  } else {
+    doc.font('Helvetica').fontSize(9).text('No notable TLS weaknesses were reported by testssl.sh.', MARGIN, doc.y, { width: CONTENT_WIDTH });
+  }
+  doc.moveDown();
+}
+
+function contentDiscoverySection(doc: PDFKit.PDFDocument, report: ReportModel) {
+  if (report.discoveredPaths.length === 0) return;
+  sectionTitle(doc, 'Discovered Paths');
+  table(doc, ['Status', 'Path', 'Size', 'Type'], report.discoveredPaths.slice(0, 50).map((p) => [String(p.status), p.path, p.size === null ? 'n/a' : String(p.size), p.contentType ?? 'n/a']));
+  if (report.discoveredPaths.length > 50) {
+    doc.font('Helvetica').fontSize(9).fillColor(COLORS.muted).text(`… and ${report.discoveredPaths.length - 50} more`, MARGIN, doc.y, { width: CONTENT_WIDTH });
+    doc.moveDown();
+  }
+  doc.moveDown();
+}
+
+function cveContextSection(doc: PDFKit.PDFDocument, report: ReportModel) {
+  if (report.cveContext.length === 0) return;
+  sectionTitle(doc, 'CVE Context (OSV)');
+  table(doc, ['Package', 'Version', 'CVEs', 'Crit/High'], report.cveContext.map((c) => [c.name, c.version, String(c.cveCount), String(c.severities.critical + c.severities.high)]));
+  doc.moveDown();
+}
+
+function severityColorForTls(severity: string): string {
+  const s = severity.toUpperCase();
+  if (s === 'CRITICAL') return COLORS.critical;
+  if (s === 'HIGH') return COLORS.high;
+  if (s === 'MEDIUM') return COLORS.medium;
+  if (s === 'LOW') return COLORS.low;
+  return COLORS.informational;
 }
 
 function toolsSection(doc: PDFKit.PDFDocument, report: ReportModel) {

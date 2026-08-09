@@ -3,19 +3,48 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { WorkerConfig } from '../shared/config';
 import type { Logger } from '../shared/logger';
-import { PORT_SCOPE_LABELS } from '../shared/constants';
-import { expandProfile, assertApprovedArgs } from '../shared/profiles';
+import { PORT_SCOPE_LABELS, DEFAULT_USER_AGENT } from '../shared/constants';
+import { expandProfile, expandModules, assertApprovedArgs } from '../shared/profiles';
 import { buildExecutiveSummary, renderMarkdown } from '../shared/report';
 import { parseTarget } from '../shared/targets';
-import type { CustomScanOptions, DiscoveredPort, Job, NormalizedTarget, ReportModel, ScanProfile, ToolResultRecord } from '../shared/types';
+import type {
+  CustomScanOptions,
+  DiscoveredPath,
+  DiscoveredPort,
+  DiscoveredSubdomain,
+  DnsRecord,
+  Job,
+  ModuleId,
+  NormalizedTarget,
+  ReportModel,
+  ScanProfile,
+  TlsHardeningResult,
+  ToolResultRecord,
+  VulnerabilityFinding,
+  WhoisInfo,
+  CveContextFinding,
+} from '../shared/types';
 import { assertNoRebinding, defaultResolver, resolveAndValidate, type DnsResolver, type ResolveResult } from './dns';
 import { buildFindings } from './findings';
 import { httpCheck as defaultHttpCheck, tlsCheck as defaultTlsCheck } from './http';
 import { formatHostForUrl } from '../shared/net';
 import type { HttpObservation, TlsObservation } from '../shared/types';
-import { parseNmapGrepable, parseWhatwebJson, parseWpscanJson, type WpscanResult } from './parsers';
+import {
+  parseNmapGrepable,
+  parseWhatwebJson,
+  parseWpscanJson,
+  parseSubfinderJson,
+  parseDnsxJson,
+  parseNucleiJsonl,
+  parseRetireJson,
+  parseTestsslJson,
+  parseFeroxJson,
+  type WpscanResult,
+} from './parsers';
 import { renderPdf } from './pdf';
 import { ScanQueue } from './queue';
+import { rdapLookup } from './rdap';
+import { osvLookup, mapTechnologyToOsv, type OsvPackageQuery } from './osv';
 import { VERSION_PROBE_ARGS, captureToolVersion, runTool, type RunnerDeps } from './runner';
 
 interface Observations {
@@ -28,6 +57,13 @@ interface Observations {
   wpscanRan: boolean;
   wpscanError: string | null;
   wpscanExitNote: string | null;
+  subdomains: DiscoveredSubdomain[];
+  dnsRecords: DnsRecord[];
+  whois: WhoisInfo | null;
+  vulnerabilities: VulnerabilityFinding[];
+  tlsHardening: TlsHardeningResult | null;
+  discoveredPaths: DiscoveredPath[];
+  cveContext: CveContextFinding[];
 }
 
 /**
@@ -37,6 +73,39 @@ interface Observations {
  */
 function isJobCancelled(job: Job): boolean {
   return job.status === 'cancelled';
+}
+
+/** Map detected technologies to OSV package queries (deduplicated). */
+function buildOsvQueries(technologies: Array<{ name: string; version: string | null }>): OsvPackageQuery[] {
+  const queries: OsvPackageQuery[] = [];
+  const seen = new Set<string>();
+  for (const t of technologies) {
+    const q = mapTechnologyToOsv(t.name, t.version);
+    if (!q) continue;
+    const key = `${q.ecosystem}:${q.name}@${q.version}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    queries.push(q);
+  }
+  return queries;
+}
+
+/** Extract same-origin `<script src>` URLs from a page's HTML. */
+function extractScriptSrcs(html: string, baseUrl: string, host: string): string[] {
+  const out: string[] = [];
+  const re = /<script\b[^>]*\bsrc\s*=\s*["']([^"']+)["']/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html)) !== null) {
+    try {
+      const url = new URL(m[1], baseUrl);
+      if (url.protocol === 'http:' || url.protocol === 'https:') {
+        if (url.hostname === host) out.push(url.toString());
+      }
+    } catch {
+      // ignore malformed src
+    }
+  }
+  return out;
 }
 
 export class QueueFullError extends Error {
@@ -60,10 +129,20 @@ export class JobNotFoundError extends Error {
   }
 }
 
+export class ModuleNotEnabledError extends Error {
+  constructor(moduleId: ModuleId) {
+    super(`The ${moduleId} module is not enabled on this deployment.`);
+    this.name = 'ModuleNotEnabledError';
+  }
+}
+
 export interface ScannerDeps {
   resolver?: DnsResolver;
   httpCheck?: typeof defaultHttpCheck;
   tlsCheck?: typeof defaultTlsCheck;
+  rdap?: typeof rdapLookup;
+  osv?: typeof osvLookup;
+  downloadJs?: (job: Job, jsDir: string, controller: AbortController) => Promise<string | null>;
 }
 
 const LIMITATIONS = [
@@ -80,6 +159,9 @@ export class ScannerService {
   private readonly resolver: DnsResolver;
   private readonly httpCheckImpl: typeof defaultHttpCheck;
   private readonly tlsCheckImpl: typeof defaultTlsCheck;
+  private readonly rdapImpl: typeof rdapLookup;
+  private readonly osvImpl: typeof osvLookup;
+  private readonly downloadJsImpl: NonNullable<ScannerDeps['downloadJs']>;
   private readonly aborts = new Map<string, AbortController>();
   private readonly validatedTargets = new Map<string, ResolveResult>();
   private ttlTimer: NodeJS.Timeout | null = null;
@@ -92,6 +174,9 @@ export class ScannerService {
     this.resolver = deps.resolver ?? defaultResolver;
     this.httpCheckImpl = deps.httpCheck ?? defaultHttpCheck;
     this.tlsCheckImpl = deps.tlsCheck ?? defaultTlsCheck;
+    this.rdapImpl = deps.rdap ?? rdapLookup;
+    this.osvImpl = deps.osv ?? osvLookup;
+    this.downloadJsImpl = deps.downloadJs ?? ((job, jsDir, controller) => this.downloadJsForRetire(job, jsDir, controller));
 
     const runnerDeps: RunnerDeps = {
       maxOutputBytes: config.maxToolOutputBytes,
@@ -132,8 +217,19 @@ export class ScannerService {
     return { pending: this.queue.pendingCount, active: this.queue.activeCount };
   }
 
-  async createJob(input: { target: string; profile: ScanProfile; custom?: CustomScanOptions }): Promise<Job> {
+  async createJob(input: { target: string; profile: ScanProfile; custom?: CustomScanOptions; modules?: ModuleId[] }): Promise<Job> {
     const target = parseTarget(input.target);
+
+    // Gate paid modules against the deployment's enabled set.
+    const requested = input.modules ?? [];
+    const enabled = this.config.enabledModules;
+    for (const m of requested) {
+      if (!enabled.has(m)) {
+        throw new ModuleNotEnabledError(m);
+      }
+    }
+    const modules = Array.from(new Set(requested));
+
     if (!this.config.allowInternalTargets) {
       // Resolve + validate up front so we never enqueue a blocked target.
       let resolved: ResolveResult;
@@ -144,23 +240,28 @@ export class ScannerService {
       }
       const jobId = crypto.randomUUID();
       this.validatedTargets.set(jobId, resolved);
-      return this.enqueue(jobId, target, input.profile, input.custom);
+      return this.enqueue(jobId, target, input.profile, input.custom, modules);
     }
 
     const jobId = crypto.randomUUID();
-    return this.enqueue(jobId, target, input.profile, input.custom);
+    return this.enqueue(jobId, target, input.profile, input.custom, modules);
   }
 
-  private enqueue(jobId: string, target: NormalizedTarget, profile: ScanProfile, custom?: CustomScanOptions): Job {
+  private enqueue(jobId: string, target: NormalizedTarget, profile: ScanProfile, custom?: CustomScanOptions, modules: ModuleId[] = []): Job {
     const jobDir = path.join(this.config.artifactDir, jobId);
     fs.mkdirSync(jobDir, { recursive: true });
 
-    const plan = expandProfile(profile, target, custom ?? null, {
-      outputPath: (name) => path.join(jobDir, name),
-    });
+    const planOpts = {
+      outputPath: (name: string) => path.join(jobDir, name),
+      wpscanApiToken: this.config.wpscanApiToken || undefined,
+      nucleiTemplates: this.config.nucleiTemplates,
+      wordlistPath: this.config.wordlistPath,
+    };
+    const plan = expandProfile(profile, target, custom ?? null, planOpts);
+    const moduleSteps = expandModules(modules, target, planOpts);
 
     // Assert the generated plan only contains approved arguments (defense-in-depth).
-    for (const step of plan.steps) {
+    for (const step of [...plan.steps, ...moduleSteps]) {
       assertApprovedArgs(step.tool, step.args);
     }
 
@@ -171,6 +272,7 @@ export class ScannerService {
       target,
       profile,
       custom: custom ?? null,
+      modules,
       createdAt,
       startedAt: null,
       finishedAt: null,
@@ -184,7 +286,7 @@ export class ScannerService {
       fs.rmSync(jobDir, { recursive: true, force: true });
       throw new QueueFullError();
     }
-    this.log.info('job_queued', { jobId, profile, host: target.host });
+    this.log.info('job_queued', { jobId, profile, host: target.host, modules });
     return job;
   }
 
@@ -264,9 +366,14 @@ export class ScannerService {
 
       const toolVersions = await this.captureVersions(job, runnerDeps);
 
-      const plan = expandProfile(job.profile, job.target, job.custom, {
-        outputPath: (name) => path.join(jobDir, name),
-      });
+      const planOpts = {
+        outputPath: (name: string) => path.join(jobDir, name),
+        wpscanApiToken: this.config.wpscanApiToken || undefined,
+        nucleiTemplates: this.config.nucleiTemplates,
+        wordlistPath: this.config.wordlistPath,
+      };
+      const plan = expandProfile(job.profile, job.target, job.custom, planOpts);
+      const moduleSteps = expandModules(job.modules, job.target, planOpts);
 
       const observations: Observations = {
         ports: [],
@@ -278,12 +385,19 @@ export class ScannerService {
         wpscanRan: false,
         wpscanError: null,
         wpscanExitNote: null,
+        subdomains: [],
+        dnsRecords: [],
+        whois: null,
+        vulnerabilities: [],
+        tlsHardening: null,
+        discoveredPaths: [],
+        cveContext: [],
       };
       const toolResults: ToolResultRecord[] = [];
       const warnings: string[] = [];
       let fatalError: string | null = null;
 
-      for (const step of plan.steps) {
+      for (const step of [...plan.steps, ...moduleSteps]) {
         if (isJobCancelled(job)) {
           await this.cleanupDir(jobDir);
           return;
@@ -327,6 +441,41 @@ export class ScannerService {
             observations.tls = tls;
             record.ok = !tls.error;
             record.error = tls.error;
+          } else if (step.tool === 'rdap') {
+            const whois = await this.rdapImpl(job.target.host);
+            observations.whois = whois;
+            record.ok = !whois.error;
+            record.error = whois.error;
+          } else if (step.tool === 'osv') {
+            const packages = buildOsvQueries(observations.technologies);
+            const cve = await this.osvImpl(packages);
+            observations.cveContext = cve;
+            record.ok = true;
+          } else if (step.tool === 'retire') {
+            // Download the target's JavaScript into a temp dir first (bounded).
+            const jsDir = path.join(jobDir, 'js');
+            const downloadErr = await this.downloadJsImpl(job, jsDir, controller);
+            if (downloadErr) {
+              record.error = downloadErr;
+              record.ok = false;
+            } else {
+              const stepTimeout = Math.max(10_000, Math.min(60_000, effectiveTimeout - (Date.now() - startedAt)));
+              const result = await runTool(step.tool, step.args, runnerDeps, { timeoutMs: stepTimeout, signal: controller.signal });
+              record.exitCode = result.exitCode;
+              record.timedOut = result.timedOut;
+              const outFile = path.join(jobDir, 'retire.json');
+              const raw = fs.existsSync(outFile) ? fs.readFileSync(outFile, 'utf8') : result.output;
+              const parsed = parseRetireJson(raw);
+              observations.vulnerabilities.push(...parsed);
+              // retire.js uses a semantic exit code when findings are found;
+              // parseable output means the scan succeeded.
+              if (parsed.length > 0 || result.exitCode === 0) {
+                record.ok = true;
+                record.error = null;
+              } else {
+                record.error = result.error ?? (result.exitCode !== 0 ? `exited with code ${result.exitCode}` : 'produced no parseable output');
+              }
+            }
           } else {
             const stepTimeout = Math.max(10_000, Math.min(60_000, effectiveTimeout - (Date.now() - startedAt)));
             const result = await runTool(step.tool, step.args, runnerDeps, {
@@ -375,6 +524,33 @@ export class ScannerService {
                   observations.wpscanExitNote = `WPScan exited with code ${result.exitCode}; findings were still collected.`;
                 }
               }
+            } else if (step.tool === 'subfinder') {
+              const outFile = path.join(jobDir, 'subfinder.json');
+              const raw = fs.existsSync(outFile) ? fs.readFileSync(outFile, 'utf8') : result.output;
+              observations.subdomains = parseSubfinderJson(raw);
+            } else if (step.tool === 'dnsx') {
+              const outFile = path.join(jobDir, 'dnsx.json');
+              const raw = fs.existsSync(outFile) ? fs.readFileSync(outFile, 'utf8') : result.output;
+              observations.dnsRecords = parseDnsxJson(raw);
+            } else if (step.tool === 'nuclei') {
+              const outFile = path.join(jobDir, 'nuclei.jsonl');
+              const raw = fs.existsSync(outFile) ? fs.readFileSync(outFile, 'utf8') : result.output;
+              observations.vulnerabilities.push(...parseNucleiJsonl(raw));
+            } else if (step.tool === 'testssl') {
+              const outFile = path.join(jobDir, 'testssl.json');
+              const raw = fs.existsSync(outFile) ? fs.readFileSync(outFile, 'utf8') : result.output;
+              const parsed = parseTestsslJson(raw);
+              observations.tlsHardening = parsed;
+              // testssl.sh uses non-zero exit codes for findings; parseable
+              // output still means the audit produced results.
+              if (parsed.finished) {
+                record.ok = true;
+                record.error = null;
+              }
+            } else if (step.tool === 'feroxbuster') {
+              const outFile = path.join(jobDir, 'ferox.json');
+              const raw = fs.existsSync(outFile) ? fs.readFileSync(outFile, 'utf8') : result.output;
+              observations.discoveredPaths = parseFeroxJson(raw);
             }
             record.ok = !record.error;
           }
@@ -438,6 +614,9 @@ export class ScannerService {
         wpscanRan: observations.wpscanRan,
         wpscanError: observations.wpscanError,
         wpscanExitNote: observations.wpscanExitNote,
+        vulnerabilities: observations.vulnerabilities,
+        discoveredPaths: observations.discoveredPaths,
+        cveContext: observations.cveContext,
         host: job.target.host,
         path: job.target.path,
       });
@@ -475,6 +654,13 @@ export class ScannerService {
             ...(observations.wpscanError ? [`Local WPScan checks failed: ${observations.wpscanError}`] : []),
           ],
         },
+        subdomains: observations.subdomains,
+        dnsRecords: observations.dnsRecords,
+        whois: observations.whois,
+        vulnerabilities: observations.vulnerabilities,
+        tlsHardening: observations.tlsHardening,
+        discoveredPaths: observations.discoveredPaths,
+        cveContext: observations.cveContext,
         toolResults,
         limitations: LIMITATIONS,
       };
@@ -524,6 +710,7 @@ export class ScannerService {
       args: [
         '--url',
         `${job.target.scheme}://${formatHostForUrl(job.target.host)}${job.target.path}`,
+        ...(this.config.wpscanApiToken ? ['--api-token', this.config.wpscanApiToken] : []),
         '--no-banner',
         '--disable-tls-checks',
         '--format',
@@ -563,7 +750,7 @@ export class ScannerService {
   }
 
   private async captureVersions(job: Job, runnerDeps: RunnerDeps) {
-    const tools = ['nmap', 'whatweb', 'wpscan'] as const;
+    const tools = ['nmap', 'whatweb', 'wpscan', 'subfinder', 'dnsx', 'nuclei', 'feroxbuster'] as const;
     const versions: Array<{ tool: string; version: string | null }> = [];
     for (const tool of tools) {
       if (tool === 'wpscan') {
@@ -576,6 +763,41 @@ export class ScannerService {
       versions.push({ tool, version });
     }
     return versions;
+  }
+
+  /**
+   * Download a bounded set of same-origin JavaScript files so retire.js can
+   * fingerprint vulnerable libraries. Returns an error string or null on success.
+   */
+  private async downloadJsForRetire(job: Job, jsDir: string, controller: AbortController): Promise<string | null> {
+    try {
+      fs.mkdirSync(jsDir, { recursive: true });
+      const baseUrl = `${job.target.scheme}://${formatHostForUrl(job.target.host)}${job.target.path}`;
+      const res = await fetch(baseUrl, {
+        signal: controller.signal,
+        headers: { 'user-agent': DEFAULT_USER_AGENT, accept: 'text/html' },
+      });
+      if (!res.ok) return `Could not fetch ${baseUrl} (HTTP ${res.status}).`;
+      const html = await res.text();
+      const srcs = extractScriptSrcs(html, baseUrl, job.target.host);
+      if (srcs.length === 0) return 'No same-origin JavaScript files found to scan.';
+      let downloaded = 0;
+      for (const src of srcs.slice(0, 10)) {
+        try {
+          const r = await fetch(src, { signal: controller.signal, headers: { 'user-agent': DEFAULT_USER_AGENT } });
+          if (!r.ok) continue;
+          const buf = Buffer.from(await r.arrayBuffer());
+          fs.writeFileSync(path.join(jsDir, `js-${downloaded}.js`), buf);
+          downloaded += 1;
+        } catch {
+          // skip failed script downloads
+        }
+      }
+      return downloaded === 0 ? 'Could not download any JavaScript files.' : null;
+    } catch (e) {
+      if (controller.signal.aborted) return 'JavaScript download interrupted.';
+      return (e as Error).message;
+    }
   }
 
   /** `wpscan --version` prints a large ASCII banner first; extract the real version. */

@@ -1,5 +1,5 @@
 import { getWebConfig } from '@/shared/config';
-import type { PublicJobView, ScanProfile } from '@/shared/types';
+import type { ModuleId, PublicJobView, ScanProfile } from '@/shared/types';
 
 export interface CreateScanInput {
   target: string;
@@ -13,6 +13,16 @@ export interface CreateScanInput {
     userAgent?: string;
     timeoutMs?: number;
   };
+  modules?: ModuleId[];
+}
+
+export interface ModuleView {
+  id: ModuleId;
+  name: string;
+  description: string;
+  tools: string[];
+  paid: boolean;
+  enabled: boolean;
 }
 
 export class WorkerClientError extends Error {
@@ -70,6 +80,16 @@ export async function createScan(input: CreateScanInput): Promise<{ jobId: strin
   if (res.ok) {
     const data = (await res.json()) as { jobId: string; status: string };
     return data;
+  }
+  const err = await readError(res);
+  throw new WorkerClientError(err.message, res.status, err.code);
+}
+
+export async function getModules(): Promise<ModuleView[]> {
+  const res = await request('/modules');
+  if (res.ok) {
+    const data = (await res.json()) as { modules: ModuleView[] };
+    return data.modules;
   }
   const err = await readError(res);
   throw new WorkerClientError(err.message, res.status, err.code);

@@ -3,10 +3,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { WorkerConfig } from '../src/shared/config';
+import type { ModuleId } from '../src/shared/types';
 import { createLogger } from '../src/shared/logger';
-import { QueueFullError, ScannerService, TargetRejectedError } from '../src/worker/scanner';
+import { QueueFullError, ScannerService, TargetRejectedError, ModuleNotEnabledError } from '../src/worker/scanner';
 import type { DnsResolver } from '../src/worker/dns';
-import type { HttpObservation, TlsObservation } from '../src/shared/types';
+import type { HttpObservation, TlsObservation, WhoisInfo, CveContextFinding } from '../src/shared/types';
 
 const BIN = path.join(__dirname, 'fixtures', 'stub-bin');
 
@@ -23,6 +24,10 @@ function makeConfig(overrides: Partial<WorkerConfig> = {}): WorkerConfig {
     artifactDir: fs.mkdtempSync(path.join(os.tmpdir(), 'sitedig-test-')),
     artifactTtlMinutes: 30,
     scannerBinDir: BIN,
+    enabledModules: new Set<ModuleId>(),
+    wpscanApiToken: '',
+    nucleiTemplates: [],
+    wordlistPath: '/opt/sitedig/wordlists/common.txt',
     ...overrides,
   };
 }
@@ -37,6 +42,14 @@ function fakeHttp(): Promise<HttpObservation> {
 
 function fakeTls(): Promise<TlsObservation> {
   return Promise.resolve({ connected: true, protocol: 'TLSv1.3', subjectCn: 'example.com', issuerCn: 'CA', validFrom: 'x', validTo: 'y', daysRemaining: 100, selfSigned: false, error: null });
+}
+
+function fakeRda(): Promise<WhoisInfo> {
+  return Promise.resolve({ registrar: 'Test Registrar', creationDate: '2020-01-01', updateDate: null, expiryDate: '2030-01-01', status: [], nameservers: ['ns1.example.com'], error: null });
+}
+
+function fakeOsv(): Promise<CveContextFinding[]> {
+  return Promise.resolve([{ id: 'jquery@2.2.4', ecosystem: 'npm', name: 'jquery', version: '2.2.4', cveCount: 3, severities: { critical: 0, high: 1, medium: 2, low: 0 } }]);
 }
 
 function makeService(config: WorkerConfig) {
@@ -169,6 +182,81 @@ describe('ScannerService integration', () => {
     expect(finding.description).toContain('exited with code 3');
     expect(finding.description).not.toContain('failed');
     expect(finding.evidence.some((e) => e.includes('wpscan_error'))).toBe(false);
+    svc.stop();
+  });
+
+  it('rejects a paid module that is not enabled', async () => {
+    const svc = makeService(config); // enabledModules is empty by default
+    await expect(svc.createJob({ target: 'example.com', profile: 'quick', modules: ['asset-discovery'] })).rejects.toThrow(ModuleNotEnabledError);
+  });
+
+  it('runs an asset-discovery module end-to-end', async () => {
+    const cfg = makeConfig({ enabledModules: new Set<ModuleId>(['asset-discovery']) });
+    const svc = new ScannerService(cfg, createLogger({ LOG_LEVEL: 'silent' }), {
+      resolver: publicResolver(),
+      httpCheck: fakeHttp,
+      tlsCheck: fakeTls,
+      rdap: fakeRda,
+      osv: fakeOsv,
+      downloadJs: async () => null,
+    });
+    svc.start();
+    const job = await svc.createJob({ target: 'example.com', profile: 'quick', modules: ['asset-discovery'] });
+    await waitFor(() => svc.getJob(job.id)?.status === 'completed');
+    const done = svc.getJob(job.id)!;
+    expect(done.status).toBe('completed');
+    expect(done.report?.subdomains.length).toBeGreaterThan(0);
+    expect(done.report?.dnsRecords.length).toBeGreaterThan(0);
+    expect(done.report?.whois?.registrar).toBe('Test Registrar');
+    expect(done.report?.toolResults.some((t) => t.tool === 'subfinder')).toBe(true);
+    expect(done.report?.toolResults.some((t) => t.tool === 'dnsx')).toBe(true);
+    expect(done.report?.toolResults.some((t) => t.tool === 'rdap')).toBe(true);
+    svc.stop();
+  });
+
+  it('runs vuln-scan and cve-context modules end-to-end', async () => {
+    const cfg = makeConfig({ enabledModules: new Set<ModuleId>(['vuln-scan', 'cve-context']), nucleiTemplates: ['http/misconfiguration'] });
+    const svc = new ScannerService(cfg, createLogger({ LOG_LEVEL: 'silent' }), {
+      resolver: publicResolver(),
+      httpCheck: fakeHttp,
+      tlsCheck: fakeTls,
+      rdap: fakeRda,
+      osv: fakeOsv,
+      downloadJs: async () => null,
+    });
+    svc.start();
+    const job = await svc.createJob({ target: 'example.com', profile: 'quick', modules: ['vuln-scan', 'cve-context'] });
+    await waitFor(() => svc.getJob(job.id)?.status === 'completed');
+    const done = svc.getJob(job.id)!;
+    expect(done.status).toBe('completed');
+    expect(done.report?.vulnerabilities.some((v) => v.source === 'nuclei')).toBe(true);
+    expect(done.report?.vulnerabilities.some((v) => v.source === 'retire')).toBe(true);
+    expect(done.report?.cveContext.length).toBeGreaterThan(0);
+    const vulnFindings = done.report?.findings.filter((f) => f.category === 'vulnerability') ?? [];
+    expect(vulnFindings.length).toBeGreaterThan(0);
+    svc.stop();
+  });
+
+  it('runs tls-hardening and content-discovery modules end-to-end', async () => {
+    const cfg = makeConfig({
+      enabledModules: new Set<ModuleId>(['tls-hardening', 'content-discovery']),
+      wordlistPath: path.join(__dirname, 'fixtures', 'wordlists', 'common.txt'),
+    });
+    const svc = new ScannerService(cfg, createLogger({ LOG_LEVEL: 'silent' }), {
+      resolver: publicResolver(),
+      httpCheck: fakeHttp,
+      tlsCheck: fakeTls,
+      rdap: fakeRda,
+      osv: fakeOsv,
+      downloadJs: async () => null,
+    });
+    svc.start();
+    const job = await svc.createJob({ target: 'example.com', profile: 'quick', modules: ['tls-hardening', 'content-discovery'] });
+    await waitFor(() => svc.getJob(job.id)?.status === 'completed');
+    const done = svc.getJob(job.id)!;
+    expect(done.status).toBe('completed');
+    expect(done.report?.tlsHardening?.weaknesses.length).toBeGreaterThan(0);
+    expect(done.report?.discoveredPaths.length).toBeGreaterThan(0);
     svc.stop();
   });
 

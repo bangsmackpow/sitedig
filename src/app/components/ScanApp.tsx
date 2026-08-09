@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { describeProfile } from '@/shared/profile-info';
-import type { CustomScanOptions, PublicJobView, ScanProfile, ToolName } from '@/shared/types';
+import type { CustomScanOptions, ModuleId, PublicJobView, ScanProfile, ToolName } from '@/shared/types';
 
 const STATUS_LABEL: Record<string, string> = {
   queued: 'Queued',
@@ -11,6 +11,15 @@ const STATUS_LABEL: Record<string, string> = {
   failed: 'Failed',
   cancelled: 'Cancelled',
 };
+
+interface ModuleView {
+  id: ModuleId;
+  name: string;
+  description: string;
+  tools: string[];
+  paid: boolean;
+  enabled: boolean;
+}
 
 const PORT_SCOPE_OPTIONS = [
   { value: 'common', label: 'Common TCP ports (curated)' },
@@ -39,6 +48,8 @@ export default function ScanApp() {
     userAgent: '',
     timeoutMs: 300_000,
   });
+  const [modules, setModules] = useState<ModuleView[]>([]);
+  const [selectedModules, setSelectedModules] = useState<ModuleId[]>([]);
 
   const [consentOpen, setConsentOpen] = useState(false);
   const [consentChecked, setConsentChecked] = useState(false);
@@ -46,6 +57,13 @@ export default function ScanApp() {
   const [job, setJob] = useState<PublicJobView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    fetch('/api/modules', { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((data: { modules?: ModuleView[] }) => setModules(data.modules ?? []))
+      .catch(() => setModules([]));
+  }, []);
 
   const isBusy = job !== null && (job.status === 'queued' || job.status === 'running');
 
@@ -116,6 +134,9 @@ export default function ScanApp() {
           userAgent: custom.userAgent.trim() || undefined,
         };
       }
+      if (selectedModules.length > 0) {
+        body.modules = selectedModules;
+      }
       const res = await fetch('/api/scan', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -156,6 +177,10 @@ export default function ScanApp() {
       if (next.length === 0) return prev;
       return { ...prev, enabledTools: next };
     });
+  };
+
+  const toggleModule = (id: ModuleId) => {
+    setSelectedModules((prev) => (prev.includes(id) ? prev.filter((m) => m !== id) : [...prev, id]));
   };
 
   const description = describeProfile(profile, profile === 'custom' ? custom : undefined);
@@ -337,6 +362,49 @@ export default function ScanApp() {
         </div>
       )}
 
+      {modules.length > 0 && (
+        <div className="field" style={{ marginTop: 22 }}>
+          <label>Add-on modules</label>
+          <div style={{ display: 'grid', gap: 10, marginTop: 8 }}>
+            {modules.map((m) => {
+              const selected = selectedModules.includes(m.id);
+              const disabled = !m.enabled || isBusy;
+              return (
+                <label
+                  key={m.id}
+                  className="tool-chip"
+                  style={{
+                    justifyContent: 'space-between',
+                    borderRadius: 10,
+                    padding: '10px 14px',
+                    cursor: disabled ? 'not-allowed' : 'pointer',
+                    opacity: disabled && !m.enabled ? 0.6 : 1,
+                    alignItems: 'flex-start',
+                  }}
+                >
+                  <span>
+                    <strong>{m.name}</strong>
+                    {m.paid && <span style={{ marginLeft: 8, fontSize: 11, color: '#fbbf24' }}>PAID</span>}
+                    <br />
+                    <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 400 }}>{m.description}</span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={selected}
+                    onChange={() => toggleModule(m.id)}
+                    disabled={disabled}
+                    style={{ marginTop: 2 }}
+                  />
+                  {!m.enabled && (
+                    <span style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap', marginTop: 2 }}>🔒 not enabled on this deployment</span>
+                  )}
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       <div style={{ marginTop: 24 }}>
         <button className="button" onClick={openConsent} disabled={isBusy || !target.trim()}>
           Start scan
@@ -358,6 +426,12 @@ export default function ScanApp() {
               <li>
                 This scan will use the <strong>{description.name}</strong> profile ({description.portScope}, expected {description.expectedDuration}).
               </li>
+              {selectedModules.length > 0 && (
+                <li>
+                  Add-on modules: <strong>{selectedModules.map((id) => modules.find((m) => m.id === id)?.name ?? id).join(', ')}</strong>. These run additional
+                  detection tools that may generate more network traffic.
+                </li>
+              )}
             </ul>
             <div className="consent-row">
               <input id="consent" type="checkbox" checked={consentChecked} onChange={(e) => setConsentChecked(e.target.checked)} />

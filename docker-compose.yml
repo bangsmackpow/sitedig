@@ -47,6 +47,11 @@ services:
       ALLOW_INTERNAL_TARGETS: ${ALLOW_INTERNAL_TARGETS:-false}
       ARTIFACT_DIR: ${ARTIFACT_DIR:-/tmp/sitedig-artifacts}
       ARTIFACT_TTL_MINUTES: ${ARTIFACT_TTL_MINUTES:-30}
+      ENABLED_MODULES: ${ENABLED_MODULES:-}
+      WPSCAN_API_TOKEN: ${WPSCAN_API_TOKEN:-}
+      NUCLEI_TEMPLATES: ${NUCLEI_TEMPLATES:-http/misconfiguration,http/exposed-panels,http/headers,ssl,exposures/configs}
+      NUCLEI_TEMPLATES_DIR: ${NUCLEI_TEMPLATES_DIR:-/opt/nuclei-templates}
+      CONTENT_WORDLIST: ${CONTENT_WORDLIST:-/opt/sitedig/wordlists/common.txt}
       APP_VERSION: ${SITEDIG_TAG:-latest}
     networks:
       - backend

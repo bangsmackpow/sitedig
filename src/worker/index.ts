@@ -5,8 +5,9 @@ import { createJobSchema } from '../shared/schemas';
 import { APP_NAME, APP_VERSION } from '../shared/constants';
 import { getWorkerConfig } from '../shared/config';
 import { createLogger } from '../shared/logger';
-import type { CustomScanOptions, Job, JobStatus, PublicJobView, ScanProfile } from '../shared/types';
-import { JobNotFoundError, QueueFullError, ScannerService, TargetRejectedError } from './scanner';
+import { MODULE_DEFINITIONS, ALL_MODULES } from '../shared/modules';
+import type { CustomScanOptions, Job, JobStatus, ModuleId, PublicJobView, ScanProfile } from '../shared/types';
+import { JobNotFoundError, ModuleNotEnabledError, QueueFullError, ScannerService, TargetRejectedError } from './scanner';
 
 const MAX_BODY_BYTES = 256 * 1024;
 
@@ -95,6 +96,7 @@ export function startWorkerServer(opts: { config: ReturnType<typeof getWorkerCon
         target: input.target,
         profile: input.profile as ScanProfile,
         custom: input.custom as CustomScanOptions | undefined,
+        modules: input.modules as ModuleId[] | undefined,
       });
       log.info('job_accepted', { jobId: job.id, profile: job.profile, host: job.target.host });
       sendJson(res, 201, { jobId: job.id, status: job.status });
@@ -103,6 +105,8 @@ export function startWorkerServer(opts: { config: ReturnType<typeof getWorkerCon
         sendError(res, 409, e.message, 'queue_full');
       } else if (e instanceof TargetRejectedError) {
         sendError(res, 422, e.message, 'target_rejected');
+      } else if (e instanceof ModuleNotEnabledError) {
+        sendError(res, 403, e.message, 'module_not_enabled');
       } else {
         log.error('job_create_failed', { error: (e as Error).message });
         sendError(res, 500, 'Failed to create scan.', 'internal');
@@ -188,6 +192,12 @@ export function startWorkerServer(opts: { config: ReturnType<typeof getWorkerCon
     try {
       if (url.pathname === '/jobs' && method === 'POST') {
         await handleJobCreate(req, res);
+        return;
+      }
+      if (url.pathname === '/modules' && method === 'GET') {
+        sendJson(res, 200, {
+          modules: ALL_MODULES.map((id) => ({ ...MODULE_DEFINITIONS[id], enabled: config.enabledModules.has(id as ModuleId) })),
+        });
         return;
       }
       if (segments.length === 2 && segments[0] === 'jobs' && method === 'GET') {

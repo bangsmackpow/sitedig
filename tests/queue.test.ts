@@ -9,6 +9,7 @@ function makeJob(id: string): Job {
     target: { kind: 'hostname', host: 'example.com', path: '/', scheme: 'https', raw: 'example.com', display: 'example.com', isIp: false },
     profile: 'quick',
     custom: null,
+    modules: [],
     createdAt: new Date().toISOString(),
     startedAt: null,
     finishedAt: null,
