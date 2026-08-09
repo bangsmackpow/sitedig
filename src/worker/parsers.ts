@@ -48,6 +48,7 @@ export function parseDnsxJson(raw: string): DnsRecord[] {
 /** Parse nuclei `-jsonl` output. */
 export function parseNucleiJsonl(raw: string): VulnerabilityFinding[] {
   const out: VulnerabilityFinding[] = [];
+  const seen = new Set<string>();
   for (const line of raw.split(/\r?\n/)) {
     const t = line.trim();
     if (!t) continue;
@@ -60,6 +61,13 @@ export function parseNucleiJsonl(raw: string): VulnerabilityFinding[] {
         'matcher-status'?: unknown;
       };
       if (obj['matcher-status'] === false) continue;
+      const templateId = String(obj['template-id'] ?? '');
+      const matchedAt = typeof obj['matched-at'] === 'string' ? obj['matched-at'] : null;
+      const name = typeof obj.info?.name === 'string' ? obj.info.name : '';
+      // Nuclei frequently emits the same template result more than once; dedupe.
+      const key = `${templateId}::${matchedAt ?? ''}::${name}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
       const severity = String(obj.info?.severity ?? 'info').toLowerCase();
       const sevMap: Record<string, VulnerabilityFinding['severity']> = {
         info: 'info',
@@ -69,12 +77,12 @@ export function parseNucleiJsonl(raw: string): VulnerabilityFinding[] {
         critical: 'critical',
       };
       out.push({
-        id: String(obj['template-id'] ?? ''),
-        templateId: String(obj['template-id'] ?? ''),
+        id: templateId,
+        templateId,
         severity: sevMap[severity] ?? 'info',
-        title: typeof obj.info?.name === 'string' ? obj.info.name : String(obj['template-id'] ?? 'Unknown template'),
+        title: name || templateId || 'Unknown template',
         description: typeof obj.info?.description === 'string' ? obj.info.description : '',
-        matchedAt: typeof obj['matched-at'] === 'string' ? obj['matched-at'] : null,
+        matchedAt,
         source: 'nuclei',
       });
     } catch {

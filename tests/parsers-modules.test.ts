@@ -45,6 +45,16 @@ describe('parseNucleiJsonl', () => {
     expect(out[0].severity).toBe('high');
     expect(out[0].source).toBe('nuclei');
   });
+
+  it('deduplicates repeated template results', () => {
+    const raw = [
+      JSON.stringify({ 'template-id': 'ssl/weak', info: { name: 'Weak Cipher', severity: 'low' }, 'matched-at': 'example.com:443', 'matcher-status': true }),
+      JSON.stringify({ 'template-id': 'ssl/weak', info: { name: 'Weak Cipher', severity: 'low' }, 'matched-at': 'example.com:443', 'matcher-status': true }),
+      JSON.stringify({ 'template-id': 'ssl/weak', info: { name: 'Weak Cipher', severity: 'low' }, 'matched-at': 'example.com:8443', 'matcher-status': true }),
+    ].join('\n');
+    const out = parseNucleiJsonl(raw);
+    expect(out).toHaveLength(2);
+  });
 });
 
 describe('parseRetireJson', () => {
