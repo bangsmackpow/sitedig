@@ -89,7 +89,7 @@ ARG DNSX_VERSION=v1.2.3
 ARG NUCLEI_VERSION=v3.3.2
 ARG FEROXBUSTER_VERSION=v2.11.0
 ARG TESTSSL_VERSION=v3.2.2
-RUN apt-get update && apt-get install -y --no-install-recommends unzip bsdmainutils dnsutils \
+RUN apt-get update && apt-get install -y --no-install-recommends unzip bsdmainutils dnsutils procps which \
     && cd /tmp \
     && curl -fsSL "https://github.com/projectdiscovery/subfinder/releases/download/${SUBFINDER_VERSION}/subfinder_${SUBFINDER_VERSION#v}_linux_amd64.zip" -o subfinder.zip \
     && curl -fsSL "https://github.com/projectdiscovery/dnsx/releases/download/${DNSX_VERSION}/dnsx_${DNSX_VERSION#v}_linux_amd64.zip" -o dnsx.zip \
