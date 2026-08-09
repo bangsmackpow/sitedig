@@ -6,7 +6,11 @@
 FROM node:22-bookworm-slim AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci
+# better-sqlite3 ships no prebuilt binary for this platform; its install script
+# falls back to node-gyp, which needs Python and the toolchain.
+RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ \
+    && rm -rf /var/lib/apt/lists/* \
+    && npm ci
 
 # ---------------------------------------------------------------------------
 # Stage 2: build
@@ -48,11 +52,14 @@ ARG WPSCAN_VERSION=3.8.25
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates \
       curl \
+      g++ \
       libcurl4 \
       libxslt1.1 \
       libyaml-0-2 \
+      make \
       nmap \
       openssl \
+      python3 \
       whatweb \
     && if [ "$INSTALL_WPSCAN" = "true" ]; then \
          apt-get install -y --no-install-recommends \
@@ -71,7 +78,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
          # activesupport dependency needs them at load time or it crashes.
          && gem install logger --no-document \
          && gem install base64 --no-document \
-         && { wpscan --version || { echo '==== WPScan runtime failure — output below ===='; wpscan --version 2>&1 | tail -40; exit 1; }; }; \
+         && { wpscan --version || { echo '==== WPScan runtime failure - output below ===='; wpscan --version 2>&1 | tail -40; exit 1; }; }; \
        fi \
     && rm -rf /var/lib/apt/lists/* /tmp/*
 
