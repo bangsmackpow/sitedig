@@ -16,8 +16,7 @@ describe('expandModules', () => {
     const tools = steps.map((s) => s.tool);
     expect(tools).toEqual(expect.arrayContaining(['subfinder', 'dnsx', 'rdap']));
     const dnsx = steps.find((s) => s.tool === 'dnsx');
-    expect(dnsx?.args).toContain('-l'); // dnsx v1.2+ needs a list file, not -d
-    expect(dnsx?.args).toContain('-r'); // explicit public resolvers avoid hanging
+    expect(dnsx?.args).toEqual(['example.com']); // in-process node:dns lookup
   });
 
   it('expands vuln-scan into nuclei + retire steps', () => {

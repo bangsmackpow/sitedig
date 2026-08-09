@@ -215,7 +215,7 @@ describe('ScannerService integration', () => {
   });
 
   it('runs vuln-scan and cve-context modules end-to-end', async () => {
-    const cfg = makeConfig({ enabledModules: new Set<ModuleId>(['vuln-scan', 'cve-context']), nucleiTemplates: ['http/misconfiguration'] });
+    const cfg = makeConfig({ enabledModules: new Set<ModuleId>(['vuln-scan', 'cve-context']), nucleiTemplates: [path.join(__dirname, 'fixtures', 'templates', 'fixture.yaml')] });
     const svc = new ScannerService(cfg, createLogger({ LOG_LEVEL: 'silent' }), {
       resolver: publicResolver(),
       httpCheck: fakeHttp,

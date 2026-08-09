@@ -34,7 +34,6 @@ import {
   parseWhatwebJson,
   parseWpscanJson,
   parseSubfinderJson,
-  parseDnsxJson,
   parseNucleiJsonl,
   parseRetireJson,
   parseTestsslJson,
@@ -44,6 +43,7 @@ import {
 import { renderPdf } from './pdf';
 import { ScanQueue } from './queue';
 import { rdapLookup } from './rdap';
+import { dnsRecordLookup } from './dnsrecords';
 import { osvLookup, mapTechnologyToOsv, type OsvPackageQuery } from './osv';
 import { VERSION_PROBE_ARGS, captureToolVersion, runTool, type RunnerDeps } from './runner';
 
@@ -451,6 +451,11 @@ export class ScannerService {
             const cve = await this.osvImpl(packages);
             observations.cveContext = cve;
             record.ok = true;
+          } else if (step.tool === 'dnsx') {
+            // In-process DNS enumeration (the dnsx binary hangs in containers).
+            const records = await dnsRecordLookup(job.target.host);
+            observations.dnsRecords = records;
+            record.ok = true;
           } else if (step.tool === 'retire') {
             // Download the target's JavaScript into a temp dir first (bounded).
             const jsDir = path.join(jobDir, 'js');
@@ -485,15 +490,38 @@ export class ScannerService {
             }
           } else {
             // Heavy module tools (nuclei/testssl) get the largest step budget,
-            // dnsx/feroxbuster a moderate one, everything else 60s. All bounded
-            // by the job cap.
+            // feroxbuster a moderate one, everything else 60s. All bounded by
+            // the job cap.
             const isHeavy = step.tool === 'nuclei' || step.tool === 'testssl';
-            const isModerate = step.tool === 'dnsx' || step.tool === 'feroxbuster';
+            const isModerate = step.tool === 'feroxbuster';
             const stepCap = isHeavy ? MAX_STEP_TIMEOUT_MS : isModerate ? MODERATE_STEP_TIMEOUT_MS : 60_000;
             const stepTimeout = Math.max(10_000, Math.min(stepCap, effectiveTimeout - (Date.now() - startedAt)));
-            if (step.tool === 'dnsx') {
-              // dnsx `-l` list file containing the target host.
-              fs.writeFileSync(path.join(jobDir, 'domains.txt'), `${job.target.host}\n`);
+            if (step.tool === 'nuclei') {
+              // Only pass template paths that actually exist. A stale/misconfigured
+              // NUCLEI_TEMPLATES should fail clearly, not grind for minutes.
+              const missing: string[] = [];
+              const kept: string[] = [];
+              for (let i = 0; i < step.args.length; i++) {
+                const arg = step.args[i];
+                if (arg === '-t' && i + 1 < step.args.length) {
+                  const templatePath = step.args[i + 1];
+                  if (fs.existsSync(templatePath)) {
+                    kept.push('-t', templatePath);
+                  } else {
+                    missing.push(templatePath);
+                  }
+                  i += 1;
+                } else {
+                  kept.push(arg);
+                }
+              }
+              if (missing.length > 0) {
+                this.log.warn('nuclei_template_missing', { jobId, paths: missing });
+              }
+              if (!kept.some((a) => a === '-t')) {
+                throw new Error('No nuclei templates found on disk (check NUCLEI_TEMPLATES / NUCLEI_TEMPLATES_DIR).');
+              }
+              step.args = kept;
             }
             const result = await runTool(step.tool, step.args, runnerDeps, {
               timeoutMs: stepTimeout,
@@ -563,10 +591,6 @@ export class ScannerService {
               const outFile = path.join(jobDir, 'subfinder.json');
               const raw = fs.existsSync(outFile) ? fs.readFileSync(outFile, 'utf8') : result.output;
               observations.subdomains = parseSubfinderJson(raw);
-            } else if (step.tool === 'dnsx') {
-              const outFile = path.join(jobDir, 'dnsx.json');
-              const raw = fs.existsSync(outFile) ? fs.readFileSync(outFile, 'utf8') : result.output;
-              observations.dnsRecords = parseDnsxJson(raw);
             } else if (step.tool === 'testssl') {
               const outFile = path.join(jobDir, 'testssl.json');
               const raw = fs.existsSync(outFile) ? fs.readFileSync(outFile, 'utf8') : result.output;

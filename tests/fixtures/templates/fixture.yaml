@@ -1,0 +1,9 @@
+# fixture: the stub nuclei ignores template contents
+id: fixture-template
+info:
+  name: Fixture
+  severity: info
+requests:
+  - method: GET
+    path:
+      - "{{BaseURL}}/"
