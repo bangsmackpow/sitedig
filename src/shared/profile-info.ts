@@ -51,7 +51,7 @@ export const PROFILE_DESCRIPTIONS: Record<Exclude<ScanProfile, 'custom'>, Profil
       'A fast, low-noise reconnaissance scan of common web and service ports. Recommended for a first look.',
     tools: ['nmap (TCP connect)', 'whatweb', 'HTTP headers', 'TLS certificate inspection', 'WordPress detection'],
     portScope: 'Common TCP ports (curated list)',
-    expectedDuration: '~30–60 seconds, capped at 10 minutes',
+    expectedDuration: '~30–60 seconds, capped at the configured limit',
     noise: 'Low. TCP connect scans on ~30 common ports only.',
     checks: [
       'Discover open common TCP ports and services',
@@ -68,7 +68,7 @@ export const PROFILE_DESCRIPTIONS: Record<Exclude<ScanProfile, 'custom'>, Profil
     summary: 'A broader scan of the top 100 TCP ports with expanded service and version detection.',
     tools: ['nmap (TCP connect)', 'whatweb', 'HTTP headers', 'TLS certificate inspection', 'WordPress detection'],
     portScope: 'Top 100 TCP ports',
-    expectedDuration: '~1–3 minutes, capped at 10 minutes',
+    expectedDuration: '~1–3 minutes, capped at the configured limit',
     noise: 'Moderate. TCP connect scans on the top 100 ports.',
     checks: [
       'Discover open ports across the top 100 TCP ports',
@@ -86,7 +86,7 @@ export const PROFILE_DESCRIPTIONS: Record<Exclude<ScanProfile, 'custom'>, Profil
     summary: 'The most thorough detection-oriented scan of the top 1,000 TCP ports with detailed enumeration.',
     tools: ['nmap (TCP connect)', 'whatweb', 'HTTP headers', 'TLS certificate inspection', 'WordPress detection'],
     portScope: 'Top 1,000 TCP ports',
-    expectedDuration: 'Up to 10 minutes (hard cap)',
+    expectedDuration: 'Up to the configured limit',
     noise: 'High. TCP connect scans across the top 1,000 ports.',
     checks: [
       'Discover open ports across the top 1,000 TCP ports',

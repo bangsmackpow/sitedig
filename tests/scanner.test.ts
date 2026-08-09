@@ -260,6 +260,26 @@ describe('ScannerService integration', () => {
     svc.stop();
   });
 
+  it('redacts the WPScan API token from report errors', async () => {
+    const token = 'super-secret-wpscan-token';
+    const svc = new ScannerService(makeConfig({ scannerBinDir: path.join(__dirname, 'fixtures', 'stub-bin-failwpscan'), wpscanApiToken: token }), createLogger({ LOG_LEVEL: 'silent' }), {
+      resolver: publicResolver(),
+      httpCheck: fakeHttp,
+      tlsCheck: fakeTls,
+      rdap: fakeRda,
+      osv: fakeOsv,
+      downloadJs: async () => null,
+    });
+    svc.start();
+    const job = await svc.createJob({ target: 'example.com', profile: 'quick' });
+    await waitFor(() => svc.getJob(job.id)?.status === 'completed');
+    const done = svc.getJob(job.id)!;
+    const reportText = JSON.stringify(done.report);
+    expect(reportText).not.toContain(token);
+    expect(reportText).toContain('***');
+    svc.stop();
+  });
+
   it('returns a queue-full error when the queue is saturated', async () => {
     const slowHttp: typeof fakeHttp = async () => {
       await new Promise((r) => setTimeout(r, 3000));

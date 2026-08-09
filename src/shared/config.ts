@@ -6,6 +6,7 @@ import {
   DEFAULT_MAX_TOOL_OUTPUT_BYTES,
   DEFAULT_SCAN_TIMEOUT_MS,
   MAX_SCAN_TIMEOUT_MS,
+  MODULE_SCAN_TIMEOUT_MS,
   DEFAULT_WEB_PORT,
   DEFAULT_WORKER_PORT,
 } from './constants';
@@ -74,19 +75,27 @@ export function getWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerCon
     .filter(Boolean);
   const nucleiTemplates =
     nucleiRaw.length > 0 ? nucleiRaw.map((t) => (path.isAbsolute(t) ? t : path.join(nucleiDir, t))) : DEFAULT_NUCLEI_TEMPLATES.map((t) => path.join(nucleiDir, t));
+  const enabledModules = parseEnabledModules(env as Record<string, string | undefined>);
+  let scanTimeoutMs = Math.max(1000, Math.min(scanTimeout, MAX_SCAN_TIMEOUT_MS));
+  // Paid modules run much heavier tools (nuclei/testssl); enforce a longer job
+  // cap automatically so a low SCAN_TIMEOUT_MS doesn't abort module scans.
+  if (enabledModules.size > 0) {
+    scanTimeoutMs = Math.max(scanTimeoutMs, MODULE_SCAN_TIMEOUT_MS);
+  }
+  scanTimeoutMs = Math.min(scanTimeoutMs, MAX_SCAN_TIMEOUT_MS);
   return {
     port: intEnv(env, 'WORKER_PORT', DEFAULT_WORKER_PORT),
     serviceToken: env.SCAN_SERVICE_TOKEN ?? '',
     maxConcurrentScans: intEnv(env, 'MAX_CONCURRENT_SCANS', DEFAULT_MAX_CONCURRENT_SCANS),
     maxQueue: intEnv(env, 'MAX_QUEUE', DEFAULT_MAX_QUEUE),
-    scanTimeoutMs: Math.max(1000, Math.min(scanTimeout, MAX_SCAN_TIMEOUT_MS)),
+    scanTimeoutMs,
     maxToolOutputBytes: intEnv(env, 'MAX_TOOL_OUTPUT_BYTES', DEFAULT_MAX_TOOL_OUTPUT_BYTES),
     logLevel: env.LOG_LEVEL ?? 'info',
     allowInternalTargets: boolEnv(env, 'ALLOW_INTERNAL_TARGETS', false),
     artifactDir: env.ARTIFACT_DIR ?? './artifacts',
     artifactTtlMinutes: intEnv(env, 'ARTIFACT_TTL_MINUTES', DEFAULT_ARTIFACT_TTL_MINUTES),
     scannerBinDir: env.SCANNER_BIN_DIR ?? null,
-    enabledModules: parseEnabledModules(env as Record<string, string | undefined>),
+    enabledModules,
     wpscanApiToken: env.WPSCAN_API_TOKEN ?? '',
     nucleiTemplates,
     nucleiTemplatesDir: nucleiDir,

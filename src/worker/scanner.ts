@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { WorkerConfig } from '../shared/config';
 import type { Logger } from '../shared/logger';
-import { PORT_SCOPE_LABELS, DEFAULT_USER_AGENT, MAX_STEP_TIMEOUT_MS } from '../shared/constants';
+import { PORT_SCOPE_LABELS, DEFAULT_USER_AGENT, MAX_STEP_TIMEOUT_MS, MODERATE_STEP_TIMEOUT_MS } from '../shared/constants';
 import { expandProfile, expandModules, assertApprovedArgs } from '../shared/profiles';
 import { buildExecutiveSummary, renderMarkdown } from '../shared/report';
 import { parseTarget } from '../shared/targets';
@@ -147,7 +147,7 @@ export interface ScannerDeps {
 
 const LIMITATIONS = [
   'TCP-only scanning; UDP and all-port scans are not performed.',
-  'Each scan is capped at 10 minutes and the configured port scope.',
+  'Each scan is capped at the configured scan duration and port scope.',
   'CIDR/network-range scanning is not supported.',
   'Detection-oriented reconnaissance only; no exploitation or vulnerability confirmation is performed.',
   'No external vulnerability database lookups are performed.',
@@ -473,20 +473,23 @@ export class ScannerService {
                 record.ok = true;
                 record.error = null;
               } else {
-                record.error =
+                record.error = this.redactError(
                   result.error ??
-                  (result.exitCode != null && result.exitCode !== 0
-                    ? `exited with code ${result.exitCode}`
-                    : result.signal
-                      ? `killed by signal ${result.signal}`
-                      : 'produced no parseable output');
+                    (result.exitCode != null && result.exitCode !== 0
+                      ? `exited with code ${result.exitCode}`
+                      : result.signal
+                        ? `killed by signal ${result.signal}`
+                        : 'produced no parseable output'),
+                );
               }
             }
           } else {
-            // Heavy module tools (nuclei/testssl) get a larger step budget;
-            // everything else is capped at 60s. All still bounded by the job cap.
+            // Heavy module tools (nuclei/testssl) get the largest step budget,
+            // dnsx/feroxbuster a moderate one, everything else 60s. All bounded
+            // by the job cap.
             const isHeavy = step.tool === 'nuclei' || step.tool === 'testssl';
-            const stepCap = isHeavy ? MAX_STEP_TIMEOUT_MS : 60_000;
+            const isModerate = step.tool === 'dnsx' || step.tool === 'feroxbuster';
+            const stepCap = isHeavy ? MAX_STEP_TIMEOUT_MS : isModerate ? MODERATE_STEP_TIMEOUT_MS : 60_000;
             const stepTimeout = Math.max(10_000, Math.min(stepCap, effectiveTimeout - (Date.now() - startedAt)));
             if (step.tool === 'dnsx') {
               // dnsx `-l` list file containing the target host.
@@ -498,13 +501,14 @@ export class ScannerService {
             });
             record.exitCode = result.exitCode;
             record.timedOut = result.timedOut;
-            record.error =
+            record.error = this.redactError(
               result.error ??
-              (result.exitCode != null && result.exitCode !== 0
-                ? `exited with code ${result.exitCode}`
-                : result.signal
-                  ? `killed by signal ${result.signal}`
-                  : null);
+                (result.exitCode != null && result.exitCode !== 0
+                  ? `exited with code ${result.exitCode}`
+                  : result.signal
+                    ? `killed by signal ${result.signal}`
+                    : null),
+            );
             if (record.error) {
               // Troubleshooting only: never expose raw output in reports/UI.
               this.log.warn('tool_failed', {
@@ -759,12 +763,14 @@ export class ScannerService {
         exitCode: result.exitCode,
         error: ok
           ? null
-          : result.error ??
-            (result.exitCode != null && result.exitCode !== 0
-              ? `exited with code ${result.exitCode}`
-              : result.signal
-                ? `killed by signal ${result.signal}`
-                : 'produced no parseable output'),
+          : this.redactError(
+              result.error ??
+                (result.exitCode != null && result.exitCode !== 0
+                  ? `exited with code ${result.exitCode}`
+                  : result.signal
+                    ? `killed by signal ${result.signal}`
+                    : 'produced no parseable output'),
+            ),
         startedAt: new Date(stepStart).toISOString(),
         finishedAt: new Date().toISOString(),
         durationMs: Date.now() - stepStart,
@@ -784,12 +790,33 @@ export class ScannerService {
         versions.push({ tool, version: await this.captureWpscanVersion(runnerDeps) });
         continue;
       }
+      if (tool === 'dnsx') {
+        versions.push({ tool, version: await this.captureDnsxVersion(runnerDeps) });
+        continue;
+      }
       const args = VERSION_PROBE_ARGS[tool];
       if (!args) continue;
       const version = await captureToolVersion(tool, runnerDeps, args);
       versions.push({ tool, version });
     }
     return versions;
+  }
+
+  /** dnsx -version prints an ASCII banner; extract the real version line. */
+  private async captureDnsxVersion(runnerDeps: RunnerDeps): Promise<string | null> {
+    try {
+      const res = await runTool('dnsx', ['-version'], runnerDeps, { timeoutMs: 15_000 });
+      const match = res.output.match(/Current Version:\s*([\d.]+)/);
+      return match ? `dnsx ${match[1]}` : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Never surface the WPScan API token in reports/logs (it can appear in execa error messages). */
+  private redactError(msg: string | null): string | null {
+    if (!msg || !this.config.wpscanApiToken) return msg;
+    return msg.split(this.config.wpscanApiToken).join('***');
   }
 
   /**
