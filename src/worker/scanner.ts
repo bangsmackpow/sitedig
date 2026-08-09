@@ -548,6 +548,17 @@ export class ScannerService {
                   observations.wpscanExitNote = `WPScan exited with code ${result.exitCode}; findings were still collected.`;
                 }
               }
+            } else if (step.tool === 'nuclei') {
+              const outFile = path.join(jobDir, 'nuclei.jsonl');
+              const raw = fs.existsSync(outFile) ? fs.readFileSync(outFile, 'utf8') : result.output;
+              const parsed = parseNucleiJsonl(raw);
+              observations.vulnerabilities.push(...parsed);
+              // Nuclei may exit 1 when some templates error, but if findings
+              // were collected the scan still produced value — treat as success.
+              if (parsed.length > 0) {
+                record.ok = true;
+                record.error = null;
+              }
             } else if (step.tool === 'subfinder') {
               const outFile = path.join(jobDir, 'subfinder.json');
               const raw = fs.existsSync(outFile) ? fs.readFileSync(outFile, 'utf8') : result.output;
@@ -556,10 +567,6 @@ export class ScannerService {
               const outFile = path.join(jobDir, 'dnsx.json');
               const raw = fs.existsSync(outFile) ? fs.readFileSync(outFile, 'utf8') : result.output;
               observations.dnsRecords = parseDnsxJson(raw);
-            } else if (step.tool === 'nuclei') {
-              const outFile = path.join(jobDir, 'nuclei.jsonl');
-              const raw = fs.existsSync(outFile) ? fs.readFileSync(outFile, 'utf8') : result.output;
-              observations.vulnerabilities.push(...parseNucleiJsonl(raw));
             } else if (step.tool === 'testssl') {
               const outFile = path.join(jobDir, 'testssl.json');
               const raw = fs.existsSync(outFile) ? fs.readFileSync(outFile, 'utf8') : result.output;

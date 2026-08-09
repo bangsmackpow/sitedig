@@ -105,10 +105,8 @@ export function getWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerCon
 
 const DEFAULT_NUCLEI_TEMPLATES = [
   'http/misconfiguration',
-  'http/exposed-panels',
   'http/headers',
   'ssl',
-  'exposures/configs',
 ];
 
 const DEFAULT_CONTENT_WORDLIST = '/opt/sitedig/wordlists/common.txt';

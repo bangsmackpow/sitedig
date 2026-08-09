@@ -86,7 +86,7 @@ RUN groupadd -r scanner && useradd -r -g scanner -d /app scanner
 # if any binary is missing or broken.
 ARG SUBFINDER_VERSION=v2.6.7
 ARG DNSX_VERSION=v1.2.3
-ARG NUCLEI_VERSION=v3.3.2
+ARG NUCLEI_VERSION=v3.11.1
 ARG FEROXBUSTER_VERSION=v2.11.0
 ARG TESTSSL_VERSION=v3.2.2
 RUN apt-get update && apt-get install -y --no-install-recommends unzip bsdmainutils dnsutils procps which \
@@ -108,9 +108,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends unzip bsdmainut
     # Fail-fast runtime checks: every module binary must execute.
     && { subfinder -version && dnsx -version && nuclei -version && feroxbuster --version && retire --version && bash /opt/testssl/testssl.sh -V; } >/dev/null 2>&1 \
        || { echo 'ERROR: one or more module tools failed to run at runtime'; subfinder -version 2>&1; dnsx -version 2>&1; nuclei -version 2>&1; feroxbuster --version 2>&1; retire --version 2>&1; bash /opt/testssl/testssl.sh -V 2>&1; exit 1; } \
-    # Curated, non-destructive Nuclei template set (allowlist).
+    # Curated, non-destructive Nuclei template set (allowlist). Download at
+    # build time and FAIL the build if it did not succeed (no silent empties).
     && mkdir -p /opt/nuclei-templates \
-    && HOME=/app nuclei -update-directory /opt/nuclei-templates -update-templates >/dev/null 2>&1 || true \
+    && HOME=/app nuclei -update-directory /opt/nuclei-templates -update-templates \
+    && { test -d /opt/nuclei-templates/http/misconfiguration && test -d /opt/nuclei-templates/http/headers && test -d /opt/nuclei-templates/ssl; } \
+       || { echo 'ERROR: nuclei templates failed to download at build time'; exit 1; } \
     && rm -rf /tmp/* /var/lib/apt/lists/* \
     && apt-get purge -y unzip
 

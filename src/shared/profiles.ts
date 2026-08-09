@@ -124,14 +124,19 @@ export function expandModules(modules: ModuleId[], target: NormalizedTarget, opt
     switch (moduleId) {
       case 'asset-discovery':
         steps.push({ tool: 'subfinder', label: 'Subfinder passive subdomain discovery', args: ['-d', target.host, '-silent', '-json', '-o', opts.outputPath('subfinder.json')] });
-        // dnsx v1.2+ requires a list file (`-l`) or wordlist with `-d`; the
-        // scanner writes the target host into domains.txt before running.
-        steps.push({ tool: 'dnsx', label: 'dnsx DNS record enumeration', args: ['-l', opts.outputPath('domains.txt'), '-silent', '-json', '-o', opts.outputPath('dnsx.json'), '-a', '-aaaa', '-cname', '-mx', '-ns', '-txt'] });
+        // dnsx v1.2+ requires a list file (`-l`); explicit public resolvers avoid
+        // hanging on the container's embedded DNS. The scanner writes the target
+        // host into domains.txt before running.
+        steps.push({
+          tool: 'dnsx',
+          label: 'dnsx DNS record enumeration',
+          args: ['-l', opts.outputPath('domains.txt'), '-silent', '-json', '-o', opts.outputPath('dnsx.json'), '-r', '1.1.1.1,8.8.8.8', '-t', '10', '-a', '-cname', '-mx', '-ns', '-txt'],
+        });
         steps.push({ tool: 'rdap', label: 'WHOIS registration lookup (RDAP)', args: [target.host] });
         break;
       case 'vuln-scan': {
         const templates = opts.nucleiTemplates?.length ? opts.nucleiTemplates : [];
-        const nucleiArgs = ['-u', webUrl, '-silent', '-jsonl', '-o', opts.outputPath('nuclei.jsonl'), '-timeout', '8', '-rate-limit', '10', '-c', '5', '-no-interactsh'];
+        const nucleiArgs = ['-u', webUrl, '-silent', '-jsonl', '-o', opts.outputPath('nuclei.jsonl'), '-timeout', '8', '-rate-limit', '10', '-c', '5', '-no-interactsh', '-duc', '-omit-raw'];
         for (const t of templates) {
           nucleiArgs.push('-t', t);
         }
@@ -178,7 +183,7 @@ export function assertApprovedArgs(tool: ScanTool, args: string[]): void {
       case 'subfinder':
         return { exact: ['-d', '-silent', '-json', '-o'] };
       case 'dnsx':
-        return { exact: ['-l', '-d', '-silent', '-json', '-o', '-a', '-aaaa', '-cname', '-mx', '-ns', '-txt'] };
+        return { exact: ['-l', '-d', '-silent', '-json', '-o', '-r', '-t', '-a', '-aaaa', '-cname', '-mx', '-ns', '-txt'] };
       case 'nuclei':
         return { exact: ['-u', '-silent', '-jsonl', '-o', '-t', '-timeout', '-rate-limit', '-c', '-no-interactsh', '-duc', '-omit-raw'] };
       case 'testssl':

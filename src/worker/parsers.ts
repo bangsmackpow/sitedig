@@ -132,6 +132,7 @@ export function parseTestsslJson(raw: string): TlsHardeningResult {
   const entries = Array.isArray(data) ? data : [data];
   const weaknesses: TlsHardeningResult['weaknesses'] = [];
   const summary: string[] = [];
+  const seenWeakness = new Set<string>();
   for (const e of entries) {
     const entry = e as {
       id?: unknown;
@@ -145,7 +146,11 @@ export function parseTestsslJson(raw: string): TlsHardeningResult {
     const id = String(entry.id ?? '');
     const finding = String(entry.finding ?? '');
     if (vuln && finding) {
-      weaknesses.push({ name: id || finding.slice(0, 40), detail: finding, severity: severity || 'MEDIUM' });
+      const key = `${id}::${finding}`;
+      if (!seenWeakness.has(key)) {
+        seenWeakness.add(key);
+        weaknesses.push({ name: id || finding.slice(0, 40), detail: finding, severity: severity || 'MEDIUM' });
+      }
     }
     if (finding && !summary.includes(finding)) {
       summary.push(finding);
@@ -154,7 +159,7 @@ export function parseTestsslJson(raw: string): TlsHardeningResult {
   return { finished: true, summary: summary.slice(0, 30), weaknesses, error: null };
 }
 
-/** Parse feroxbuster `--format json -o` output (JSONL). */
+/** Parse feroxbuster `--json -o` output (JSONL). */
 export function parseFeroxJson(raw: string): DiscoveredPath[] {
   const out: DiscoveredPath[] = [];
   for (const line of raw.split(/\r?\n/)) {
@@ -163,16 +168,19 @@ export function parseFeroxJson(raw: string): DiscoveredPath[] {
     try {
       const obj = JSON.parse(t) as { url?: unknown; status?: unknown; content_length?: unknown; content_type?: unknown; wildcard?: unknown };
       if (obj.wildcard === true) continue;
-      const url = String(obj.url ?? '');
+      const url = typeof obj.url === 'string' && obj.url ? obj.url : '';
+      if (!url) continue;
       let path = url;
       try {
         path = new URL(url).pathname;
       } catch {
-        // keep raw url as path
+        continue;
       }
+      const status = typeof obj.status === 'number' ? obj.status : 0;
+      if (!path || status < 100) continue;
       out.push({
         path,
-        status: typeof obj.status === 'number' ? obj.status : 0,
+        status,
         size: typeof obj.content_length === 'number' ? obj.content_length : null,
         contentType: typeof obj.content_type === 'string' ? obj.content_type : null,
       });

@@ -77,6 +77,16 @@ describe('parseTestsslJson', () => {
     expect(out.weaknesses.length).toBe(2);
     expect(out.weaknesses[0].severity).toBe('CRITICAL');
   });
+
+  it('deduplicates repeated weaknesses', () => {
+    const raw = JSON.stringify([
+      { id: 'BREACH', severity: 'MEDIUM', finding: 'BREACH vulnerable', vuln: true },
+      { id: 'BREACH', severity: 'MEDIUM', finding: 'BREACH vulnerable', vuln: true },
+      { id: 'overall_grade', severity: 'MEDIUM', finding: 'B', vuln: true },
+    ]);
+    const out = parseTestsslJson(raw);
+    expect(out.weaknesses.length).toBe(2);
+  });
 });
 
 describe('parseFeroxJson', () => {
@@ -88,5 +98,16 @@ describe('parseFeroxJson', () => {
     const out = parseFeroxJson(raw);
     expect(out).toHaveLength(1);
     expect(out[0].path).toBe('/admin');
+  });
+
+  it('filters empty or invalid rows', () => {
+    const raw = [
+      JSON.stringify({ url: '', status: 0 }),
+      JSON.stringify({ url: 'not a url', status: 200 }),
+      JSON.stringify({ url: 'https://example.com/ok', status: 200 }),
+    ].join('\n');
+    const out = parseFeroxJson(raw);
+    expect(out).toHaveLength(1);
+    expect(out[0].path).toBe('/ok');
   });
 });

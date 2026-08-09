@@ -171,7 +171,7 @@ docker compose pull && docker compose up -d
 | `APP_VERSION` | both | `0.1.0` | Version string reported in logs |
 | `ENABLED_MODULES` | worker | *(empty)* | Comma-separated paid module ids to unlock |
 | `WPSCAN_API_TOKEN` | worker | *(empty)* | WPScan API token for plugin/theme vulnerability data |
-| `NUCLEI_TEMPLATES` | worker | `http/misconfiguration,http/exposed-panels,http/headers,ssl,exposures/configs` | Nuclei template allowlist |
+| `NUCLEI_TEMPLATES` | worker | `http/misconfiguration,http/headers,ssl` | Nuclei template allowlist |
 | `NUCLEI_TEMPLATES_DIR` | worker | `/opt/nuclei-templates` | Nuclei template directory |
 | `CONTENT_WORDLIST` | worker | `/opt/sitedig/wordlists/common.txt` | Wordlist for content discovery |
 
