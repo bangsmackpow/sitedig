@@ -104,9 +104,13 @@ export function getWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerCon
 }
 
 const DEFAULT_NUCLEI_TEMPLATES = [
-  'http/misconfiguration',
-  'http/headers',
-  'ssl',
+  'http/technologies/tech-detect.yaml',
+  'http/exposures/configs/git-config.yaml',
+  'ssl/tls-version.yaml',
+  'ssl/deprecated-tls.yaml',
+  'ssl/self-signed-ssl.yaml',
+  'ssl/expired-ssl.yaml',
+  'ssl/weak-cipher-suites.yaml',
 ];
 
 const DEFAULT_CONTENT_WORDLIST = '/opt/sitedig/wordlists/common.txt';

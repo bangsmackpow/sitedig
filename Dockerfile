@@ -111,12 +111,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends unzip bsdmainut
        || { echo 'ERROR: one or more module tools failed to run at runtime'; subfinder -version 2>&1; dnsx -version 2>&1; nuclei -version 2>&1; feroxbuster --version 2>&1; retire --version 2>&1; bash /opt/testssl/testssl.sh -V 2>&1; exit 1; } \
     # Curated, non-destructive Nuclei template set (allowlist). Installed from a
     # pinned nuclei-templates tarball (deterministic; no HOME/config dependency).
-    # FAIL the build if it does not land where the runtime expects it.
+    # FAIL the build if any allowlisted template file is missing.
     && mkdir -p /opt/nuclei-templates \
     && curl -fsSL "https://github.com/projectdiscovery/nuclei-templates/archive/refs/tags/${NUCLEI_TEMPLATES_VERSION}.tar.gz" -o nuclei-templates.tar.gz \
     && tar xzf nuclei-templates.tar.gz -C /opt/nuclei-templates --strip-components=1 \
-    && { test -d /opt/nuclei-templates/http/misconfiguration && test -d /opt/nuclei-templates/http/headers && test -d /opt/nuclei-templates/ssl; } \
-       || { echo 'ERROR: nuclei templates missing after install'; ls /opt/nuclei-templates 2>&1 | head -30; exit 1; } \
+    && for t in \
+         http/technologies/tech-detect.yaml \
+         http/exposures/configs/git-config.yaml \
+         ssl/tls-version.yaml \
+         ssl/deprecated-tls.yaml \
+         ssl/self-signed-ssl.yaml \
+         ssl/expired-ssl.yaml \
+         ssl/weak-cipher-suites.yaml; do \
+         test -f "/opt/nuclei-templates/$t" || { echo "ERROR: nuclei template missing: $t"; exit 1; }; \
+       done \
     && rm -rf /tmp/* /var/lib/apt/lists/* \
     && apt-get purge -y unzip
 
