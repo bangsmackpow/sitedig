@@ -1,7 +1,7 @@
 import type { WhoisInfo } from '../shared/types';
 
 const RDAP_BOOTSTRAP = 'https://rdap.org/domain/';
-const TIMEOUT_MS = 15_000;
+const TIMEOUT_MS = 25_000;
 
 /**
  * WHOIS/registration lookup via the RDAP HTTP protocol (JSON, no binary).

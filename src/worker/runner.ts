@@ -7,6 +7,7 @@ export interface RunResult {
   output: string;
   truncated: boolean;
   error: string | null;
+  signal: string | null;
 }
 
 export interface RunnerDeps {
@@ -124,10 +125,22 @@ export async function runTool(
   opts.signal?.addEventListener('abort', onAbort, { once: true });
 
   let exitCode: number | null = null;
+  let signal: string | null = null;
   let error: string | null = null;
   try {
     const result = await child;
-    exitCode = result.exitCode;
+    exitCode = result.exitCode ?? null;
+    signal = result.signal ?? null;
+    // execa resolves with `failed: true` (and `reject: false`) on both non-zero
+    // exits and some process failures; surface the real message so a broken
+    // tool is never hidden behind "exited with code undefined".
+    if (result.failed && !error) {
+      const meta = result as unknown as { shortMessage?: string; message?: string };
+      error = meta.shortMessage || meta.message || null;
+    }
+    if (result.isCanceled) {
+      error = error ?? 'Process was cancelled.';
+    }
   } catch (e) {
     // AbortSignal cancels and spawn failures surface here.
     error = (e as Error).message;
@@ -136,7 +149,7 @@ export async function runTool(
     opts.signal?.removeEventListener('abort', onAbort);
   }
 
-  return { exitCode, timedOut, output, truncated, error };
+  return { exitCode, timedOut, output, truncated, error, signal };
 }
 
 /** Probe a tool's version line. Used for report metadata. */

@@ -473,7 +473,13 @@ export class ScannerService {
                 record.ok = true;
                 record.error = null;
               } else {
-                record.error = result.error ?? (result.exitCode !== 0 ? `exited with code ${result.exitCode}` : 'produced no parseable output');
+                record.error =
+                  result.error ??
+                  (result.exitCode != null && result.exitCode !== 0
+                    ? `exited with code ${result.exitCode}`
+                    : result.signal
+                      ? `killed by signal ${result.signal}`
+                      : 'produced no parseable output');
               }
             }
           } else {
@@ -484,7 +490,13 @@ export class ScannerService {
             });
             record.exitCode = result.exitCode;
             record.timedOut = result.timedOut;
-            record.error = result.error ?? (result.exitCode !== 0 ? `exited with code ${result.exitCode}` : null);
+            record.error =
+              result.error ??
+              (result.exitCode != null && result.exitCode !== 0
+                ? `exited with code ${result.exitCode}`
+                : result.signal
+                  ? `killed by signal ${result.signal}`
+                  : null);
             if (record.error) {
               // Troubleshooting only: never expose raw output in reports/UI.
               this.log.warn('tool_failed', {
@@ -737,7 +749,14 @@ export class ScannerService {
         ok,
         timedOut: result.timedOut,
         exitCode: result.exitCode,
-        error: ok ? null : result.error ?? (result.exitCode !== 0 ? `exited with code ${result.exitCode}` : 'produced no parseable output'),
+        error: ok
+          ? null
+          : result.error ??
+            (result.exitCode != null && result.exitCode !== 0
+              ? `exited with code ${result.exitCode}`
+              : result.signal
+                ? `killed by signal ${result.signal}`
+                : 'produced no parseable output'),
         startedAt: new Date(stepStart).toISOString(),
         finishedAt: new Date().toISOString(),
         durationMs: Date.now() - stepStart,
