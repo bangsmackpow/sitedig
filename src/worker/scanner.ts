@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { WorkerConfig } from '../shared/config';
 import type { Logger } from '../shared/logger';
-import { PORT_SCOPE_LABELS, DEFAULT_USER_AGENT } from '../shared/constants';
+import { PORT_SCOPE_LABELS, DEFAULT_USER_AGENT, MAX_STEP_TIMEOUT_MS } from '../shared/constants';
 import { expandProfile, expandModules, assertApprovedArgs } from '../shared/profiles';
 import { buildExecutiveSummary, renderMarkdown } from '../shared/report';
 import { parseTarget } from '../shared/targets';
@@ -147,7 +147,7 @@ export interface ScannerDeps {
 
 const LIMITATIONS = [
   'TCP-only scanning; UDP and all-port scans are not performed.',
-  'Each scan is capped at 5 minutes and the configured port scope.',
+  'Each scan is capped at 10 minutes and the configured port scope.',
   'CIDR/network-range scanning is not supported.',
   'Detection-oriented reconnaissance only; no exploitation or vulnerability confirmation is performed.',
   'No external vulnerability database lookups are performed.',
@@ -483,7 +483,15 @@ export class ScannerService {
               }
             }
           } else {
-            const stepTimeout = Math.max(10_000, Math.min(60_000, effectiveTimeout - (Date.now() - startedAt)));
+            // Heavy module tools (nuclei/testssl) get a larger step budget;
+            // everything else is capped at 60s. All still bounded by the job cap.
+            const isHeavy = step.tool === 'nuclei' || step.tool === 'testssl';
+            const stepCap = isHeavy ? MAX_STEP_TIMEOUT_MS : 60_000;
+            const stepTimeout = Math.max(10_000, Math.min(stepCap, effectiveTimeout - (Date.now() - startedAt)));
+            if (step.tool === 'dnsx') {
+              // dnsx `-l` list file containing the target host.
+              fs.writeFileSync(path.join(jobDir, 'domains.txt'), `${job.target.host}\n`);
+            }
             const result = await runTool(step.tool, step.args, runnerDeps, {
               timeoutMs: stepTimeout,
               signal: controller.signal,

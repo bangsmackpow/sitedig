@@ -161,11 +161,22 @@ export async function captureToolVersion(
 ): Promise<string | null> {
   try {
     const res = await runTool(tool, args, deps, { timeoutMs });
-    const firstLine = res.output.split(/\r?\n/)[0]?.trim() ?? null;
-    return firstLine && firstLine.length <= 120 ? firstLine : null;
+    const line = firstMeaningfulLine(res.output);
+    return line && line.length <= 120 ? line : null;
   } catch {
     return null;
   }
+}
+
+const ANSI_RE = /\u001b\[[0-9;]*[A-Za-z]/g;
+
+/** First non-empty line with ANSI escape codes stripped. */
+function firstMeaningfulLine(output: string): string | null {
+  for (const raw of output.split(/\r?\n/)) {
+    const line = raw.replace(ANSI_RE, '').trim();
+    if (line) return line;
+  }
+  return null;
 }
 
 export const VERSION_PROBE_ARGS: Partial<Record<ToolName, string[]>> = {

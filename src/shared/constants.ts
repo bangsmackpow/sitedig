@@ -3,8 +3,9 @@ export const APP_VERSION = typeof process !== 'undefined' ? (process.env.APP_VER
 
 export const DEFAULT_USER_AGENT = `${APP_NAME}/${APP_VERSION} (authorized-scan)`;
 
-export const MAX_SCAN_TIMEOUT_MS = 5 * 60 * 1000; // hard cap, matches handoff
-export const DEFAULT_SCAN_TIMEOUT_MS = 5 * 60 * 1000;
+export const MAX_SCAN_TIMEOUT_MS = 15 * 60 * 1000; // absolute cap (free + modules)
+export const DEFAULT_SCAN_TIMEOUT_MS = 10 * 60 * 1000; // default job cap (modules may need more than 5 min)
+export const MAX_STEP_TIMEOUT_MS = 150_000; // per-step cap for heavy module tools (nuclei/testssl)
 export const DEFAULT_MAX_CONCURRENT_SCANS = 1;
 export const DEFAULT_MAX_QUEUE = 3;
 export const DEFAULT_MAX_TOOL_OUTPUT_BYTES = 20 * 1024 * 1024;

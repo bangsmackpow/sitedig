@@ -357,7 +357,7 @@ export default function ScanApp() {
           )}
 
           {(job.status === 'failed' || job.status === 'cancelled') && job.error && <div className="error-box">{job.error}</div>}
-          {job.status === 'running' && <div className="info-box">Scan in progress. The worker enforces a maximum duration of 5 minutes.</div>}
+          {job.status === 'running' && <div className="info-box">Scan in progress. The worker enforces a maximum duration of 10 minutes.</div>}
           {job.status === 'queued' && <div className="info-box">Your scan is queued behind other scans.</div>}
         </div>
       )}

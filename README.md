@@ -107,7 +107,7 @@ services:
       SCAN_SERVICE_TOKEN: ${SCAN_SERVICE_TOKEN}
       MAX_CONCURRENT_SCANS: ${MAX_CONCURRENT_SCANS:-1}
       MAX_QUEUE: ${MAX_QUEUE:-3}
-      SCAN_TIMEOUT_MS: ${SCAN_TIMEOUT_MS:-300000}
+      SCAN_TIMEOUT_MS: ${SCAN_TIMEOUT_MS:-600000}
       ALLOW_INTERNAL_TARGETS: "false"
       ARTIFACT_TTL_MINUTES: ${ARTIFACT_TTL_MINUTES:-30}
       LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -162,7 +162,7 @@ docker compose pull && docker compose up -d
 | `WORKER_PORT` | worker | `8081` | Internal worker port |
 | `MAX_CONCURRENT_SCANS` | worker | `1` | Concurrently executing scans |
 | `MAX_QUEUE` | worker | `3` | Additional queued scans |
-| `SCAN_TIMEOUT_MS` | worker | `300000` | Hard per-scan cap (max 300000) |
+| `SCAN_TIMEOUT_MS` | worker | `600000` | Per-scan cap (max 900000) |
 | `MAX_TOOL_OUTPUT_BYTES` | worker | `20971520` | Max captured output per tool |
 | `ALLOW_INTERNAL_TARGETS` | worker | `false` | **Keep false on public deployments.** Allows RFC1918/private targets. |
 | `ARTIFACT_DIR` | worker | `/tmp/sitedig-artifacts` | Temp report storage |

@@ -32,7 +32,7 @@ export function buildExecutiveSummary(meta: ReportMeta, findings: Finding[], por
   const low = findings.filter((f) => f.severity === 'low').length;
 
   let summary = `This report summarises an authorized, detection-oriented reconnaissance scan of ${meta.target} `;
-  summary += `using the ${meta.profile} profile. The scan was TCP-only, limited to ${portCount ? `the configured port scope` : 'a restricted port scope'}, and capped at 5 minutes. `;
+  summary += `using the ${meta.profile} profile. The scan was TCP-only, limited to ${portCount ? `the configured port scope` : 'a restricted port scope'}, and capped at 10 minutes. `;
   summary += `It identifies observed facts such as open ports, web technologies, HTTP headers, and TLS certificate details. It does not perform exploitation or vulnerability confirmation.`;
 
   if (notable.length > 0) {

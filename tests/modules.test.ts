@@ -15,6 +15,8 @@ describe('expandModules', () => {
     const steps = expandModules(['asset-discovery'], target, opts);
     const tools = steps.map((s) => s.tool);
     expect(tools).toEqual(expect.arrayContaining(['subfinder', 'dnsx', 'rdap']));
+    const dnsx = steps.find((s) => s.tool === 'dnsx');
+    expect(dnsx?.args).toContain('-l'); // dnsx v1.2+ needs a list file, not -d
   });
 
   it('expands vuln-scan into nuclei + retire steps', () => {
@@ -37,6 +39,7 @@ describe('expandModules', () => {
     expect(nuclei?.args).toContain('https://example.com/shop');
     const ferox = steps.find((s) => s.tool === 'feroxbuster');
     expect(ferox?.args).toContain('https://example.com/shop');
+    expect(ferox?.args).toContain('--json'); // feroxbuster v2.11 uses --json
   });
 });
 

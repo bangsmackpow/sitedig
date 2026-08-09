@@ -124,7 +124,9 @@ export function expandModules(modules: ModuleId[], target: NormalizedTarget, opt
     switch (moduleId) {
       case 'asset-discovery':
         steps.push({ tool: 'subfinder', label: 'Subfinder passive subdomain discovery', args: ['-d', target.host, '-silent', '-json', '-o', opts.outputPath('subfinder.json')] });
-        steps.push({ tool: 'dnsx', label: 'dnsx DNS record enumeration', args: ['-d', target.host, '-silent', '-json', '-o', opts.outputPath('dnsx.json'), '-a', '-aaaa', '-cname', '-mx', '-ns', '-txt', '-soa'] });
+        // dnsx v1.2+ requires a list file (`-l`) or wordlist with `-d`; the
+        // scanner writes the target host into domains.txt before running.
+        steps.push({ tool: 'dnsx', label: 'dnsx DNS record enumeration', args: ['-l', opts.outputPath('domains.txt'), '-silent', '-json', '-o', opts.outputPath('dnsx.json'), '-a', '-aaaa', '-cname', '-mx', '-ns', '-txt', '-soa'] });
         steps.push({ tool: 'rdap', label: 'WHOIS registration lookup (RDAP)', args: [target.host] });
         break;
       case 'vuln-scan': {
@@ -144,7 +146,7 @@ export function expandModules(modules: ModuleId[], target: NormalizedTarget, opt
         steps.push({
           tool: 'feroxbuster',
           label: 'Feroxbuster content discovery (rate-limited)',
-          args: ['-u', webUrl, '--format', 'json', '-o', opts.outputPath('ferox.json'), '-w', opts.wordlistPath ?? '/opt/sitedig/wordlists/common.txt', '-d', '1', '-t', '5', '-L', '5', '-q'],
+          args: ['-u', webUrl, '--json', '-o', opts.outputPath('ferox.json'), '-w', opts.wordlistPath ?? '/opt/sitedig/wordlists/common.txt', '-d', '1', '-t', '5', '-L', '5', '-q'],
         });
         break;
       case 'cve-context':
@@ -176,13 +178,13 @@ export function assertApprovedArgs(tool: ScanTool, args: string[]): void {
       case 'subfinder':
         return { exact: ['-d', '-silent', '-json', '-o'] };
       case 'dnsx':
-        return { exact: ['-d', '-silent', '-json', '-o', '-a', '-aaaa', '-cname', '-mx', '-ns', '-txt', '-soa'] };
+        return { exact: ['-l', '-d', '-silent', '-json', '-o', '-a', '-aaaa', '-cname', '-mx', '-ns', '-txt', '-soa'] };
       case 'nuclei':
         return { exact: ['-u', '-silent', '-jsonl', '-o', '-t', '-timeout', '-rate-limit', '-c', '-no-interactsh', '-duc', '-omit-raw'] };
       case 'testssl':
         return { exact: ['--jsonfile', '--fast', '--quiet'] };
       case 'feroxbuster':
-        return { exact: ['-u', '--format', '-o', '-w', '-d', '-t', '-L', '-q', '-n'] };
+        return { exact: ['-u', '--json', '--format', '-o', '-w', '-d', '-t', '-L', '-q', '-n'] };
       case 'retire':
         return { exact: ['--path', '--outputformat', '--outputpath', '--exitwith'] };
       case 'http':

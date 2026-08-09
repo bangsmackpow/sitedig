@@ -5,6 +5,7 @@ import {
   DEFAULT_MAX_QUEUE,
   DEFAULT_MAX_TOOL_OUTPUT_BYTES,
   DEFAULT_SCAN_TIMEOUT_MS,
+  MAX_SCAN_TIMEOUT_MS,
   DEFAULT_WEB_PORT,
   DEFAULT_WORKER_PORT,
 } from './constants';
@@ -78,7 +79,7 @@ export function getWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerCon
     serviceToken: env.SCAN_SERVICE_TOKEN ?? '',
     maxConcurrentScans: intEnv(env, 'MAX_CONCURRENT_SCANS', DEFAULT_MAX_CONCURRENT_SCANS),
     maxQueue: intEnv(env, 'MAX_QUEUE', DEFAULT_MAX_QUEUE),
-    scanTimeoutMs: Math.max(1000, Math.min(scanTimeout, DEFAULT_SCAN_TIMEOUT_MS)),
+    scanTimeoutMs: Math.max(1000, Math.min(scanTimeout, MAX_SCAN_TIMEOUT_MS)),
     maxToolOutputBytes: intEnv(env, 'MAX_TOOL_OUTPUT_BYTES', DEFAULT_MAX_TOOL_OUTPUT_BYTES),
     logLevel: env.LOG_LEVEL ?? 'info',
     allowInternalTargets: boolEnv(env, 'ALLOW_INTERNAL_TARGETS', false),
