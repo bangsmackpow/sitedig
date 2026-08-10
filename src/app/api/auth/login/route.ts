@@ -1,13 +1,12 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { z } from 'zod';
-import { getWebConfig } from '@/shared/config';
 import { ensureInitialized } from '@/server/bootstrap';
 import { errorJson } from '@/server/http';
 import { AuthError, login, toPublicUser } from '@/server/auth/service';
 import { isPremium } from '@/server/entitlements';
 import { clientIp, rateLimit, sha256 } from '@/server/auth/rate-limit';
-import { createSession, setSessionCookie, setCsrfCookie, newCsrfToken } from '@/server/auth/sessions';
+import { createSession, setSessionCookie, setCsrfCookie, newCsrfToken, secureRequest } from '@/server/auth/sessions';
 import { verifyOrigin } from '@/server/auth/csrf';
 
 export const dynamic = 'force-dynamic';
@@ -30,7 +29,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
     const user = await login(parsed.data.email, parsed.data.password);
     const session = createSession(user.id, sha256(ip), req.headers.get('user-agent') ? sha256(req.headers.get('user-agent')!) : undefined);
-    const secure = getWebConfig().deploymentMode === 'hosted';
+    const secure = secureRequest(req);
     const res = NextResponse.json({ user: toPublicUser(user, isPremium(user)) });
     setSessionCookie(res, session.token, secure);
     setCsrfCookie(res, newCsrfToken(), secure);

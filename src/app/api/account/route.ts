@@ -1,12 +1,11 @@
 import type { NextRequest } from 'next/server';
-import { getWebConfig } from '@/shared/config';
 import { ensureInitialized } from '@/server/bootstrap';
 import { errorJson, json } from '@/server/http';
 import { guardUser } from '@/server/http';
 import { buildMePayload } from '@/server/me';
 import { isDeletionPending, requestAccountDeletion } from '@/server/account';
 import { verifyCsrfOrOrigin } from '@/server/auth/csrf';
-import { clearSessionCookie } from '@/server/auth/sessions';
+import { clearSessionCookie, secureRequest } from '@/server/auth/sessions';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,6 +26,6 @@ export async function DELETE(req: NextRequest) {
 
   await requestAccountDeletion(guard.value.user.id);
   const res = json({ ok: true });
-  clearSessionCookie(res, getWebConfig().deploymentMode === 'hosted');
+  clearSessionCookie(res, secureRequest(req));
   return res;
 }

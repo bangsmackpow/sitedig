@@ -104,6 +104,15 @@ export function getRequestToken(req: NextRequest): string | undefined {
   return req.cookies.get(sessionCookieName(req.nextUrl.protocol === 'https:'))?.value;
 }
 
+/**
+ * Whether cookies should use the `__Host-` prefix and Secure flag.
+ * Derived from the request protocol (which reflects X-Forwarded-Proto behind a
+ * reverse proxy) so that cookie writes always use the same name as reads.
+ */
+export function secureRequest(req: NextRequest): boolean {
+  return req.nextUrl.protocol === 'https:';
+}
+
 export function setSessionCookie(res: NextResponse, token: string, secure: boolean): void {
   res.cookies.set(sessionCookieName(secure), token, sessionCookieOptions({ secure }));
 }
