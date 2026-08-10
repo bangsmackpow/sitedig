@@ -150,7 +150,7 @@ COPY --from=build /app/public ./public
 COPY --chown=scanner:scanner assets/wordlists/common.txt /opt/sitedig/wordlists/common.txt
 
 # Artifact workspace owned by the scanner user.
-RUN mkdir -p /tmp/sitedig-artifacts && chown -R scanner:scanner /app /tmp/sitedig-artifacts /opt/sitedig
+RUN mkdir -p /tmp/sitedig-artifacts /data && chown -R scanner:scanner /app /tmp/sitedig-artifacts /opt/sitedig /data
 
 USER scanner
 ENV HOME=/app
