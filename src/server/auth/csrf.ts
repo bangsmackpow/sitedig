@@ -25,11 +25,26 @@ export function verifyOrigin(req: NextRequest): boolean {
   const origin = req.headers.get('origin');
   if (!origin) return true; // non-browser clients
   const base = getWebConfig().appBaseUrl;
+  let originOk = false;
   try {
-    return new URL(origin).origin === new URL(base).origin;
+    originOk = new URL(origin).origin === new URL(base).origin;
   } catch {
-    return false;
+    // fall through to host check below
   }
+  if (originOk) return true;
+  // Behind a reverse proxy (Nginx Proxy Manager) the forwarded Host header is the
+  // public origin; accept the request when the Origin matches the Host so strict
+  // APP_BASE_URL configuration is not required to log in. Cross-site origins
+  // still fail because they will not match the forwarded Host.
+  const host = req.headers.get('host');
+  if (host) {
+    try {
+      if (new URL(origin).host === host) return true;
+    } catch {
+      // ignore
+    }
+  }
+  return false;
 }
 
 /** Both CSRF token echo and origin check must pass for browser mutations. */

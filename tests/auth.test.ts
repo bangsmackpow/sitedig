@@ -280,6 +280,36 @@ describe('csrf', () => {
     expect(a).toMatch(/^[A-Za-z0-9_-]+$/);
     expect(a).not.toEqual(b);
   });
+
+  it('verifyOrigin accepts same-origin and forwarded-Host origins, rejects cross-site', async () => {
+    const { verifyOrigin } = await import('../src/server/auth/csrf');
+
+    // Same as APP_BASE_URL (http://localhost:3000 in tests)
+    const sameOrigin = { method: 'POST', headers: new Headers({ origin: 'http://localhost:3000' }) } as never;
+    expect(verifyOrigin(sameOrigin)).toBe(true);
+
+    // Cross-site origin must be rejected
+    const crossSite = { method: 'POST', headers: new Headers({ origin: 'https://evil.example' }) } as never;
+    expect(verifyOrigin(crossSite)).toBe(false);
+
+    // Reverse-proxy scenario: Origin matches forwarded Host, not APP_BASE_URL
+    const viaProxy = {
+      method: 'POST',
+      headers: new Headers({ origin: 'https://sitedig.example.com', host: 'sitedig.example.com' }),
+    } as never;
+    expect(verifyOrigin(viaProxy)).toBe(true);
+
+    // Origin that matches neither APP_BASE_URL nor Host must be rejected
+    const mismatch = {
+      method: 'POST',
+      headers: new Headers({ origin: 'https://other.example.com', host: 'sitedig.example.com' }),
+    } as never;
+    expect(verifyOrigin(mismatch)).toBe(false);
+
+    // Non-mutating methods bypass the check
+    const get = { method: 'GET', headers: new Headers() } as never;
+    expect(verifyOrigin(get)).toBe(true);
+  });
 });
 
 describe('audit log', () => {
