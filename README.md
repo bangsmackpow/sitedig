@@ -12,19 +12,19 @@ Built with Next.js + a dedicated TypeScript scanner worker. Ships as a single pu
 
 ## What it does
 
-SiteDig executes a bounded, TCP-only reconnaissance scan of a domain, hostname, IPv4, IPv6, or full URL using safe, detection-oriented Linux tools — `nmap` (TCP connect), `whatweb`, `curl`/HTTP header inspection, in-process TLS certificate inspection, and conditional local-only `wpscan`. Each scan produces a **dual-format report** (client-facing executive summary + technical appendix) that you download as a **PDF** or **Markdown** file.
+SiteDig executes a bounded, TCP-only reconnaissance scan of a domain, hostname, IPv4, IPv6, or full URL using safe, detection-oriented Linux tools — `nmap` (TCP connect), `whatweb`, `curl`/HTTP header inspection, in-process TLS certificate inspection, and conditional local-only `wpscan`. Optional premium add-on modules add passive subdomain discovery, curated nuclei/retire.js checks, testssl.sh hardening, content discovery, and OSV CVE enrichment. Each scan produces a **dual-format report** (client-facing executive summary + technical appendix) that you download as a **PDF** or **Markdown** file.
 
-It is **not** a vulnerability scanner. It never runs exploitation, brute force, UDP, all-port, or CIDR scans, and it performs no external vulnerability-database lookups.
+It is **not** a vulnerability scanner. It never runs exploitation, brute force, UDP, all-port, or CIDR scans, and the free core performs no external vulnerability-database lookups (the `cve-context` module and the optional WPScan API token are opt-in).
 
 ## Features
 
-- **Accounts & access control** - email/password accounts with email verification and password reset, DB-backed sessions, and an admin console. Two deployment modes: `hosted` (public multi-tenant SaaS with Stripe billing) and `self-hosted` (single-org install with an env-bootstrapped first admin).
-- **Four scan profiles** - Quick, Standard, Deep, and a bounded Custom profile, each with plain-language scope, tool, noise, and duration descriptions shown before you scan.
+- **Accounts & access control** — email/password accounts with email verification and password reset, DB-backed sessions, and an admin console. Two deployment modes: `hosted` (public multi-tenant SaaS with Stripe billing) and `self-hosted` (single-org install with an env-bootstrapped first admin).
+- **Four scan profiles** — Quick, Standard, Deep, and a bounded Custom profile, each with plain-language scope, tool, noise, and duration descriptions shown before you scan.
 - **Strict target safety** — RFC1918, loopback, link-local, multicast, reserved, documentation, IPv6 ULA, and cloud-metadata addresses are rejected. DNS is re-validated before *every* tool, DNS rebinding is detected, and every HTTP redirect destination is safety-checked.
 - **Authorization gate** — a consent modal with a required checkbox must be acknowledged for **every** scan.
 - **Lifecycle transparency** — simple `queued → running → completed / failed / cancelled` status, with the option to cancel a queued or running scan.
 - **Separate downloads** — one-click PDF and Markdown, generated from the same normalized report model (no content drift).
-- **Hard limits** — configurable concurrency, queue depth, per-tool output caps, and a 5-minute maximum scan duration enforced with process-group cleanup.
+- **Hard limits** — configurable concurrency, queue depth, per-tool output caps, and a scan duration cap (default 10 min, max 15 min) enforced with process-group cleanup.
 - **Entitlement-gated Premium** — paid add-on modules require an active Premium entitlement, granted by Stripe subscriptions (hosted) or by admins (self-hosted), and are gated again server-side before jobs reach the worker.
 - **Server-side logging** — verbose, structured logs to Docker/Portainer; logs are never exposed in the UI or reports.
 - **SQLite persistence** — identities, sessions, entitlements, and billing state only. No scan history or report storage.
@@ -63,7 +63,9 @@ npm run dev:worker
 npm run dev
 ```
 
-Set `WORKER_URL=http://localhost:8081` and (optionally) `SCAN_SERVICE_TOKEN` in your environment. On first web startup, set `INITIAL_ADMIN_EMAIL`/`INITIAL_ADMIN_PASSWORD` to bootstrap the first admin account (self-hosted mode). Running scans now requires signing in.
+Set `WORKER_URL=http://localhost:8081` and (optionally) `SCAN_SERVICE_TOKEN` in your environment. On first web startup, set `INITIAL_ADMIN_EMAIL`/`INITIAL_ADMIN_PASSWORD` to bootstrap the first admin account (self-hosted mode). Running scans now requires signing in. The web service uses a SQLite database (default `./data/sitedig.sqlite` via `DATABASE_PATH`) — the directory is created automatically.
+
+> In `self-hosted` mode without SMTP, public registration is disabled; accounts are created by an admin (or via the first-admin bootstrap). Registration becomes available once SMTP is configured.
 
 > Local Windows/macOS dev without `nmap`/`whatweb`/`wpscan` will still boot; scanner steps fail gracefully and are recorded as tool errors in the report. The Docker image includes all tools.
 
@@ -89,7 +91,25 @@ services:
     environment:
       WORKER_URL: http://worker:8081
       SCAN_SERVICE_TOKEN: ${SCAN_SERVICE_TOKEN}
+      DEPLOYMENT_MODE: ${DEPLOYMENT_MODE:-self-hosted}
+      DATABASE_PATH: ${DATABASE_PATH:-/data/sitedig.sqlite}
+      APP_BASE_URL: ${APP_BASE_URL:-https://your-public-domain}
+      INITIAL_ADMIN_EMAIL: ${INITIAL_ADMIN_EMAIL}
+      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      STRIPE_PRICE_ID: ${STRIPE_PRICE_ID:-}
+      STRIPE_PORTAL_RETURN_URL: ${STRIPE_PORTAL_RETURN_URL:-}
+      ENABLED_MODULES: ${ENABLED_MODULES:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - sitedig-data:/data
     networks: [backend]
     restart: unless-stopped
     healthcheck:
@@ -110,8 +130,14 @@ services:
       MAX_CONCURRENT_SCANS: ${MAX_CONCURRENT_SCANS:-1}
       MAX_QUEUE: ${MAX_QUEUE:-3}
       SCAN_TIMEOUT_MS: ${SCAN_TIMEOUT_MS:-600000}
+      MAX_TOOL_OUTPUT_BYTES: ${MAX_TOOL_OUTPUT_BYTES:-20971520}
       ALLOW_INTERNAL_TARGETS: "false"
       ARTIFACT_TTL_MINUTES: ${ARTIFACT_TTL_MINUTES:-30}
+      ENABLED_MODULES: ${ENABLED_MODULES:-}
+      WPSCAN_API_TOKEN: ${WPSCAN_API_TOKEN:-}
+      NUCLEI_TEMPLATES: ${NUCLEI_TEMPLATES:-http/technologies/tech-detect.yaml,http/exposures/configs/git-config.yaml,ssl/tls-version.yaml,ssl/deprecated-tls.yaml,ssl/self-signed-ssl.yaml,ssl/expired-ssl.yaml,ssl/weak-cipher-suites.yaml}
+      NUCLEI_TEMPLATES_DIR: ${NUCLEI_TEMPLATES_DIR:-/opt/nuclei-templates}
+      CONTENT_WORDLIST: ${CONTENT_WORDLIST:-/opt/sitedig/wordlists/common.txt}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     networks: [backend]
     restart: unless-stopped
@@ -128,9 +154,14 @@ services:
 networks:
   backend:
     external: true
+
+volumes:
+  sitedig-data:
 ```
 
-No host ports are published — the stack is only reachable through Nginx Proxy Manager on the `backend` network.
+No host ports are published — the stack is only reachable through Nginx Proxy Manager on the `backend` network. The `sitedig-data` volume persists the SQLite database (accounts, sessions, entitlements, billing) at `/data/sitedig.sqlite`; it must exist so the non-root container user can write the DB.
+
+> **First deploy:** set `INITIAL_ADMIN_EMAIL` and `INITIAL_ADMIN_PASSWORD` before the first start to bootstrap the admin (used only when no admin exists yet). If you ever had a failed start that created the volume as root-owned, delete the `sitedig-data` volume once and redeploy so the `scanner` user can write to it.
 
 ### 3. Nginx Proxy Manager
 
@@ -173,7 +204,7 @@ docker compose pull && docker compose up -d
 | `APP_VERSION` | both | `0.1.0` | Version string reported in logs |
 | `DEPLOYMENT_MODE` | web | `self-hosted` | `hosted` (public SaaS) or `self-hosted` (single org) |
 | `DATABASE_PATH` | web | `/data/sitedig.sqlite` | SQLite file for accounts, sessions, entitlements, billing |
-| `APP_BASE_URL` | web | `http://localhost:3000` | Public origin used in emails and billing redirects |
+| `APP_BASE_URL` | web | `http://localhost:3000` | Public origin used in emails, billing redirects, and the CSRF origin check. **Set this to your public domain** (e.g. `https://sitedig.example.com`) — behind a reverse proxy the request `Host` header is also accepted for login |
 | `INITIAL_ADMIN_EMAIL` / `INITIAL_ADMIN_PASSWORD` | web | *(empty)* | Bootstrap the first admin (self-hosted). Used only when no admin exists |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM` | web | *(empty)* | Email delivery for verification / password reset. Required in `hosted` mode |
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_ID`, `STRIPE_PORTAL_RETURN_URL` | web | *(empty)* | Stripe billing (hosted mode). `portal_return_url` optional, defaults to `/account` |
@@ -200,14 +231,14 @@ These checks live in `src/shared/net.ts` and are heavily unit-tested.
 | --- | --- | --- | --- |
 | **Quick** | Common ports (curated) | ~30–60s | Low noise; fast first look |
 | **Standard** | Top 100 TCP | ~1–3 min | Expanded service/version detection |
-| **Deep** | Top 1,000 TCP | up to 5 min | Detailed enumeration, still hard-capped |
+| **Deep** | Top 1,000 TCP | up to the scan cap | Detailed enumeration, still hard-capped |
 | **Custom** | common / top100 / top1000 | user-selected | Bounded controls only — no raw args |
 
-All profiles share one command pipeline, so safety rules cannot be bypassed by profile choice.
+All profiles share one command pipeline, so safety rules cannot be bypassed by profile choice. Enabling premium add-on modules extends a scan beyond the profile duration up to the configured job cap (default 10 min, max 15 min).
 
 ## Paid add-on modules
 
-SiteDig ships a set of **Premium add-on modules**. A user must hold an active Premium entitlement to run them, and an admin must enable the module on the deployment (`ENABLED_MODULES` acts as the ceiling). In `hosted` mode, Premium is granted by an active Stripe subscription (the billing webhook is the source of truth); in `self-hosted` mode, admins grant Premium from the admin console. Requests for modules a user cannot access are rejected server-side with `403 module_not_enabled` or `403 premium_required` before any job reaches the worker.
+SiteDig ships a set of **Premium add-on modules**. A user must hold an active Premium entitlement to run them, and an admin must enable the module on the deployment (`ENABLED_MODULES` acts as the ceiling). In `hosted` mode, Premium is granted by an active Stripe subscription (the billing webhook is the source of truth); in `self-hosted` mode, admins grant Premium from the admin console. The web route rejects requests for modules a user cannot access with `403 module_locked` before any job reaches the worker; the worker independently rejects with `403 module_not_enabled`.
 
 | Module | Env id | Tools | What it adds |
 | --- | --- | --- | --- |
@@ -256,7 +287,7 @@ Notes:
 ```bash
 npm run lint           # next lint (web + shared)
 npm run typecheck      # tsc (web) + tsc (worker)
-npm test               # vitest — 123 tests, including stub-tool integration tests
+npm test               # vitest — 124 tests, including stub-tool integration tests
 npm run build          # worker compile + Next.js production build
 npm run validate:compose
 ```
