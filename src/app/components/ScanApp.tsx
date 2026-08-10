@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { describeProfile } from '@/shared/profile-info';
 import type { CustomScanOptions, ModuleId, PublicJobView, ScanProfile, ToolName } from '@/shared/types';
+import { getCsrfToken } from '@/app/lib/api';
 
 const STATUS_LABEL: Record<string, string> = {
   queued: 'Queued',
@@ -149,7 +150,7 @@ export default function ScanApp() {
       }
       const res = await fetch('/api/scan', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', 'x-csrf-token': getCsrfToken() },
         body: JSON.stringify(body),
       });
       const data = (await res.json()) as { jobId?: string; error?: { message?: string } };
@@ -171,7 +172,10 @@ export default function ScanApp() {
   const cancelCurrent = async () => {
     if (!job) return;
     try {
-      const res = await fetch(`/api/scan/${encodeURIComponent(job.id)}/cancel`, { method: 'POST' });
+      const res = await fetch(`/api/scan/${encodeURIComponent(job.id)}/cancel`, {
+        method: 'POST',
+        headers: { 'x-csrf-token': getCsrfToken() },
+      });
       const data = (await res.json()) as { job?: PublicJobView; error?: { message?: string } };
       if (res.ok && data.job) setJob(data.job);
       else setError(data.error?.message ?? 'Failed to cancel the scan.');
