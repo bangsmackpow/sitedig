@@ -17,6 +17,8 @@ permissions:
 
 env:
   IMAGE: ghcr.io/${{ github.repository }}
+  # Portainer stack webhook (secret). Empty when the secret is not configured.
+  PORTAINER_WEBHOOK_URL: ${{ secrets.PORTAINER_WEBHOOK_URL }}
 
 jobs:
   test:
@@ -99,8 +101,8 @@ jobs:
           severity: CRITICAL,HIGH
 
       - name: Trigger Portainer stack update
-        if: ${{ secrets.PORTAINER_WEBHOOK_URL != '' }}
+        if: env.PORTAINER_WEBHOOK_URL != ''
         run: |
-          curl -fsS -X POST "${{ secrets.PORTAINER_WEBHOOK_URL }}" -o /dev/null \
+          curl -fsS -X POST "$PORTAINER_WEBHOOK_URL" -o /dev/null \
             && echo "Portainer stack update triggered." \
             || { echo "::warning::Portainer webhook request failed."; exit 0; }
