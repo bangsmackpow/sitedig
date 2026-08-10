@@ -97,3 +97,10 @@ jobs:
           format: table
           exit-code: '0'
           severity: CRITICAL,HIGH
+
+      - name: Trigger Portainer stack update
+        if: ${{ secrets.PORTAINER_WEBHOOK_URL != '' }}
+        run: |
+          curl -fsS -X POST "${{ secrets.PORTAINER_WEBHOOK_URL }}" -o /dev/null \
+            && echo "Portainer stack update triggered." \
+            || { echo "::warning::Portainer webhook request failed."; exit 0; }

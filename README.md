@@ -238,6 +238,18 @@ Severity ratings are **inferred** from observed evidence and clearly flagged as 
 1. Installs dependencies, lints, typechecks (web + worker), runs all tests.
 2. Validates `docker-compose.yml` (via a Node script and `docker compose config`).
 3. On pushes to `main` or version tags, builds `linux/amd64`, pushes to **public GHCR** (`latest` + `sha-…` or `vX.Y.Z`), and runs a Trivy vulnerability scan.
+4. If the `PORTAINER_WEBHOOK_URL` repository secret is set, fires the Portainer stack webhook so the deployed stack redeploys with the freshly pushed image.
+
+### Auto-redeploy via Portainer stack webhook
+
+1. In Portainer, open your stack and click **Add webhook** (under the stack's details). Copy the generated webhook URL. Stack webhooks are unauthenticated — treat the URL as a secret.
+2. Add it as a repository secret on GitHub: **Settings → Secrets and variables → Actions → New repository secret**, name `PORTAINER_WEBHOOK_URL`, value = the webhook URL.
+3. Push to `main`. After the image is built, pushed, and scanned, CI POSTs the webhook and Portainer pulls the new image and recreates the stack.
+
+Notes:
+
+- The step only runs when the secret is set; the build never fails if the webhook request fails (it logs a warning instead).
+- Your stack must reference the same tag CI pushes (`latest` by default). If Portainer is not re-pulling the updated `latest` image, set `imagePullPolicy: Always` on the web service (Portainer stack options) or bump `SITEDIG_TAG` to a version tag.
 
 ## Development
 
