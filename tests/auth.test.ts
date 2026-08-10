@@ -116,9 +116,8 @@ describe('sessions', () => {
     expect(getSessionUser(token)).toBeNull();
   });
 
-  it('names the cookie with the __Host- prefix for secure contexts', () => {
-    expect(sessionCookieName(true)).toBe('__Host-sitedig_session');
-    expect(sessionCookieName(false)).toBe('sitedig_session');
+  it('uses a single canonical cookie name regardless of secure context', () => {
+    expect(sessionCookieName()).toBe('sitedig_session');
   });
 });
 

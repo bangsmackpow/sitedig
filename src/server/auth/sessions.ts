@@ -9,12 +9,16 @@ export function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
 
-export function sessionCookieName(secure: boolean): string {
-  return secure ? '__Host-sitedig_session' : 'sitedig_session';
+const SESSION_COOKIE = 'sitedig_session';
+const CSRF_COOKIE = 'sitedig_csrf';
+const LEGACY_HOST_PREFIXES = ['__Host-sitedig_session', '__Host-sitedig_csrf'];
+
+export function sessionCookieName(): string {
+  return SESSION_COOKIE;
 }
 
-export function csrfCookieName(secure: boolean): string {
-  return secure ? '__Host-sitedig_csrf' : 'sitedig_csrf';
+export function csrfCookieName(): string {
+  return CSRF_COOKIE;
 }
 
 export function createSession(userId: number, ipHash?: string, userAgentHash?: string): { token: string; expiresAt: string } {
@@ -101,28 +105,37 @@ export function csrfCookieOptions(opts: CookieOptions): CookieSerializeOptions {
 }
 
 export function getRequestToken(req: NextRequest): string | undefined {
-  return req.cookies.get(sessionCookieName(req.nextUrl.protocol === 'https:'))?.value;
+  return req.cookies.get(sessionCookieName())?.value;
 }
 
 /**
- * Whether cookies should use the `__Host-` prefix and Secure flag.
- * Derived from the request protocol (which reflects X-Forwarded-Proto behind a
- * reverse proxy) so that cookie writes always use the same name as reads.
+ * Whether cookies should carry the Secure flag. Derived from the request
+ * protocol (which reflects X-Forwarded-Proto behind a reverse proxy).
  */
 export function secureRequest(req: NextRequest): boolean {
   return req.nextUrl.protocol === 'https:';
 }
 
 export function setSessionCookie(res: NextResponse, token: string, secure: boolean): void {
-  res.cookies.set(sessionCookieName(secure), token, sessionCookieOptions({ secure }));
+  res.cookies.set(sessionCookieName(), token, sessionCookieOptions({ secure }));
+  // Purge any legacy __Host- cookie from earlier deploys so stale names can
+  // never shadow the single canonical cookie.
+  for (const legacy of LEGACY_HOST_PREFIXES) {
+    res.cookies.set(legacy, '', { ...sessionCookieOptions({ secure }), maxAge: 0 });
+  }
 }
 
 export function clearSessionCookie(res: NextResponse, secure: boolean): void {
-  res.cookies.set(sessionCookieName(secure), '', { ...sessionCookieOptions({ secure }), maxAge: 0 });
+  res.cookies.set(sessionCookieName(), '', { ...sessionCookieOptions({ secure }), maxAge: 0 });
 }
 
 export function setCsrfCookie(res: NextResponse, token: string, secure: boolean): void {
-  res.cookies.set(csrfCookieName(secure), token, csrfCookieOptions({ secure }));
+  res.cookies.set(csrfCookieName(), token, csrfCookieOptions({ secure }));
+  res.cookies.set('__Host-sitedig_csrf', '', { ...csrfCookieOptions({ secure }), maxAge: 0 });
+}
+
+export function clearCsrfCookie(res: NextResponse, secure: boolean): void {
+  res.cookies.set(csrfCookieName(), '', { ...csrfCookieOptions({ secure }), maxAge: 0 });
 }
 
 export function newCsrfToken(): string {

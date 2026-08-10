@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import Link from 'next/link';
 import { APP_NAME, APP_VERSION } from '@/shared/constants';
+import AuthNav from '@/app/components/AuthNav';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -25,17 +26,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               {APP_NAME}
             </Link>
             <span className="brand-sub">authorized reconnaissance scanner</span>
-            <nav style={{ marginLeft: 'auto', display: 'flex', gap: 16 }}>
-              <Link className="link" href="/login">
-                Login
-              </Link>
-              <Link className="link" href="/account">
-                Account
-              </Link>
-              <Link className="link" href="/admin">
-                Admin
-              </Link>
-            </nav>
+            <AuthNav />
           </div>
         </header>
         <main className="main">{children}</main>

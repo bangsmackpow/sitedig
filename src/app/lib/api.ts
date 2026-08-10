@@ -10,7 +10,7 @@ export function getCsrfToken(): string {
   for (const part of parts) {
     const idx = part.indexOf('=');
     const name = part.slice(0, idx).trim();
-    if (name === '__Host-sitedig_csrf' || name === 'sitedig_csrf') {
+    if (name === 'sitedig_csrf') {
       return decodeURIComponent(part.slice(idx + 1));
     }
   }

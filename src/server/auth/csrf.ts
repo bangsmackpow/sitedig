@@ -12,8 +12,7 @@ const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
  */
 export function verifyCsrf(req: NextRequest): boolean {
   if (!MUTATING_METHODS.has(req.method)) return true;
-  const secure = req.nextUrl.protocol === 'https:';
-  const cookie = req.cookies.get(csrfCookieName(secure))?.value;
+  const cookie = req.cookies.get(csrfCookieName())?.value;
   const header = req.headers.get('x-csrf-token');
   if (!cookie || !header) return false;
   return createHash('sha256').update(cookie).digest('hex') === createHash('sha256').update(header).digest('hex');
