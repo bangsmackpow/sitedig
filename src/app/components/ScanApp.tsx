@@ -60,6 +60,7 @@ export default function ScanApp() {
   const [job, setJob] = useState<PublicJobView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const premiumSelectRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     fetch('/api/modules', { cache: 'no-store', credentials: 'same-origin' })
@@ -195,6 +196,24 @@ export default function ScanApp() {
 
   const toggleModule = (id: ModuleId) => {
     setSelectedModules((prev) => (prev.includes(id) ? prev.filter((m) => m !== id) : [...prev, id]));
+  };
+
+  const premiumModules = modules.filter((m) => m.paid && m.enabled && m.accessible !== false);
+  const allPremiumSelected = premiumModules.length > 0 && premiumModules.every((m) => selectedModules.includes(m.id));
+  const somePremiumSelected = premiumModules.some((m) => selectedModules.includes(m.id));
+
+  useEffect(() => {
+    if (premiumSelectRef.current) {
+      premiumSelectRef.current.indeterminate = premiumModules.length > 0 && somePremiumSelected && !allPremiumSelected;
+    }
+  }, [allPremiumSelected, somePremiumSelected, premiumModules.length]);
+
+  const toggleAllPremium = (checked: boolean) => {
+    const ids = premiumModules.map((m) => m.id);
+    setSelectedModules((prev) => {
+      if (checked) return [...new Set([...prev, ...ids])];
+      return prev.filter((id) => !ids.includes(id));
+    });
   };
 
   const description = describeProfile(profile, profile === 'custom' ? custom : undefined);
@@ -379,6 +398,18 @@ export default function ScanApp() {
       {modules.length > 0 && (
         <div className="field" style={{ marginTop: 22 }}>
           <label>Add-on modules</label>
+          {premiumModules.length > 0 && (
+            <label className="consent-row" style={{ marginTop: 6 }}>
+              <input
+                ref={premiumSelectRef}
+                type="checkbox"
+                checked={allPremiumSelected}
+                onChange={(e) => toggleAllPremium(e.target.checked)}
+                disabled={isBusy}
+              />
+              <span>Select all premium tools ({premiumModules.length})</span>
+            </label>
+          )}
           <div style={{ display: 'grid', gap: 10, marginTop: 8 }}>
             {modules.map((m) => {
               const selected = selectedModules.includes(m.id);
