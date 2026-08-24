@@ -101,6 +101,12 @@ export function csrfCookieOptions(opts: CookieOptions): CookieSerializeOptions {
     secure: opts.secure,
     sameSite: 'lax',
     path: '/',
+    // Keep the CSRF cookie alive as long as the session cookie. Without a
+    // maxAge this is a browser-session cookie: after a browser restart the
+    // user is still logged in (session persists ~30 days) but the CSRF cookie
+    // is gone, so mutating requests fail the double-submit check with
+    // "Request origin not allowed".
+    maxAge: opts.maxAge ?? Math.floor(SESSION_TTL_MS / 1000),
   };
 }
 
