@@ -28,9 +28,11 @@ const SUBPROCESS_TOOLS: ToolName[] = [
   'subfinder',
   'dnsx',
   'nuclei',
+  'httpx',
   'retire',
   'testssl',
   'feroxbuster',
+  'waybackurls',
 ];
 
 function resolveCommand(tool: ToolName, deps: RunnerDeps): { file: string; prefix: string[] } {
@@ -186,5 +188,6 @@ export const VERSION_PROBE_ARGS: Partial<Record<ToolName, string[]>> = {
   subfinder: ['-version'],
   dnsx: ['-version'],
   nuclei: ['-version'],
+  httpx: ['-version'],
   feroxbuster: ['--version'],
 };

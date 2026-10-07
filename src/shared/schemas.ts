@@ -2,9 +2,9 @@ import { z } from 'zod';
 
 export const portScopeSchema = z.enum(['common', 'top100', 'top1000']);
 export const scanProfileSchema = z.enum(['quick', 'standard', 'deep', 'custom']);
-export const toolNameSchema = z.enum(['nmap', 'whatweb', 'wpscan', 'http', 'tls', 'subfinder', 'dnsx', 'rdap', 'nuclei', 'retire', 'testssl', 'feroxbuster', 'osv']);
+export const toolNameSchema = z.enum(['nmap', 'whatweb', 'wpscan', 'http', 'tls', 'subfinder', 'dnsx', 'rdap', 'email', 'nuclei', 'httpx', 'retire', 'testssl', 'feroxbuster', 'waybackurls', 'osv']);
 export const baseToolNameSchema = z.enum(['nmap', 'whatweb', 'wpscan', 'http', 'tls']);
-export const moduleIdSchema = z.enum(['asset-discovery', 'vuln-scan', 'tls-hardening', 'content-discovery', 'cve-context']);
+export const moduleIdSchema = z.enum(['asset-discovery', 'vuln-scan', 'tls-hardening', 'content-discovery', 'cve-context', 'remediation-playbook']);
 
 export const customOptionsSchema = z
   .object({
@@ -23,7 +23,7 @@ export const createJobSchema = z
     profile: scanProfileSchema,
     consent: z.literal(true, { errorMap: () => ({ message: 'Authorization acknowledgement is required.' }) }),
     custom: customOptionsSchema.optional(),
-    modules: z.array(moduleIdSchema).max(5).optional(),
+    modules: z.array(moduleIdSchema).max(6).optional(),
   })
   .strict();
 

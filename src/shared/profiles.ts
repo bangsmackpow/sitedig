@@ -128,6 +128,8 @@ export function expandModules(modules: ModuleId[], target: NormalizedTarget, opt
         // is unreliable inside containers.
         steps.push({ tool: 'dnsx', label: 'DNS record enumeration', args: [target.host] });
         steps.push({ tool: 'rdap', label: 'WHOIS registration lookup (RDAP)', args: [target.host] });
+        // Email/DNS security posture runs in-process (node:dns + SMTP probe).
+        steps.push({ tool: 'email', label: 'Email & DNS security posture (SPF/DMARC/STARTTLS)', args: [target.host] });
         break;
       case 'vuln-scan': {
         const templates = opts.nucleiTemplates?.length ? opts.nucleiTemplates : [];
@@ -137,6 +139,7 @@ export function expandModules(modules: ModuleId[], target: NormalizedTarget, opt
         }
         steps.push({ tool: 'nuclei', label: 'Nuclei template scan (curated allowlist)', args: nucleiArgs });
         steps.push({ tool: 'retire', label: 'Retire.js vulnerable JavaScript', args: ['--path', opts.outputPath('js'), '--outputformat', 'json', '--outputpath', opts.outputPath('retire.json'), '--exitwith', '3'] });
+        steps.push({ tool: 'httpx', label: 'Httpx HTTP surface validation', args: ['-u', webUrl, '-silent', '-json', '-o', opts.outputPath('httpx.jsonl'), '-follow-redirects', '-status-line', '-server', '-td', '-timeout', '8', '-no-color'] });
         break;
       }
       case 'tls-hardening':
@@ -148,9 +151,15 @@ export function expandModules(modules: ModuleId[], target: NormalizedTarget, opt
           label: 'Feroxbuster content discovery (rate-limited)',
           args: ['-u', webUrl, '--json', '-o', opts.outputPath('ferox.json'), '-w', opts.wordlistPath ?? '/opt/sitedig/wordlists/common.txt', '-d', '1', '-t', '5', '-L', '5', '-q'],
         });
+        // --no-subs keeps archived URLs on the exact target host so live
+        // re-verification never leaves the authorized scope.
+        steps.push({ tool: 'waybackurls', label: 'Wayback Machine URL history', args: ['--no-subs', target.host] });
         break;
       case 'cve-context':
         steps.push({ tool: 'osv', label: 'OSV CVE enrichment', args: [target.host] });
+        break;
+      case 'remediation-playbook':
+        // Report-only module: appends the resolution playbook. No tool steps.
         break;
     }
   }
@@ -181,15 +190,20 @@ export function assertApprovedArgs(tool: ScanTool, args: string[]): void {
         return { exact: [] }; // in-process (node:dns)
       case 'nuclei':
         return { exact: ['-u', '-silent', '-jsonl', '-o', '-t', '-timeout', '-rate-limit', '-c', '-no-interactsh', '-duc', '-omit-raw'] };
+      case 'httpx':
+        return { exact: ['-u', '-silent', '-json', '-o', '-follow-redirects', '-status-line', '-server', '-td', '-timeout', '-no-color'] };
       case 'testssl':
         return { exact: ['--jsonfile', '--fast', '--quiet'] };
       case 'feroxbuster':
         return { exact: ['-u', '--json', '--format', '-o', '-w', '-d', '-t', '-L', '-q', '-n'] };
+      case 'waybackurls':
+        return { exact: ['--no-subs', '--dates'] };
       case 'retire':
         return { exact: ['--path', '--outputformat', '--outputpath', '--exitwith'] };
       case 'http':
       case 'tls':
       case 'rdap':
+      case 'email':
       case 'osv':
         return { exact: [] };
     }

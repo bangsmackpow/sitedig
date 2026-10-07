@@ -7,7 +7,7 @@ import type { ModuleId } from '../src/shared/types';
 import { createLogger } from '../src/shared/logger';
 import { QueueFullError, ScannerService, TargetRejectedError, ModuleNotEnabledError } from '../src/worker/scanner';
 import type { DnsResolver } from '../src/worker/dns';
-import type { HttpObservation, TlsObservation, WhoisInfo, CveContextFinding } from '../src/shared/types';
+import type { EmailPostureResult, HttpObservation, TlsObservation, WhoisInfo, CveContextFinding } from '../src/shared/types';
 
 const BIN = path.join(__dirname, 'fixtures', 'stub-bin');
 
@@ -50,6 +50,19 @@ function fakeRda(): Promise<WhoisInfo> {
 
 function fakeOsv(): Promise<CveContextFinding[]> {
   return Promise.resolve([{ id: 'jquery@2.2.4', ecosystem: 'npm', name: 'jquery', version: '2.2.4', cveCount: 3, severities: { critical: 0, high: 1, medium: 2, low: 0 } }]);
+}
+
+function fakeEmail(): Promise<EmailPostureResult> {
+  return Promise.resolve({
+    domain: 'example.com',
+    spfRecords: ['v=spf1 ip4:93.184.216.34 -all'],
+    dmarcRecords: [],
+    mx: [{ host: 'mail.example.com', priority: 10 }],
+    mtaSts: null,
+    tlsRpt: null,
+    starttls: { checked: true, mx: 'mail.example.com', supported: false, error: null },
+    error: null,
+  });
 }
 
 function makeService(config: WorkerConfig) {
@@ -198,6 +211,7 @@ describe('ScannerService integration', () => {
       tlsCheck: fakeTls,
       rdap: fakeRda,
       osv: fakeOsv,
+      emailPosture: fakeEmail,
       downloadJs: async () => null,
     });
     svc.start();
@@ -211,6 +225,10 @@ describe('ScannerService integration', () => {
     expect(done.report?.toolResults.some((t) => t.tool === 'subfinder')).toBe(true);
     expect(done.report?.toolResults.some((t) => t.tool === 'dnsx')).toBe(true);
     expect(done.report?.toolResults.some((t) => t.tool === 'rdap')).toBe(true);
+    expect(done.report?.toolResults.some((t) => t.tool === 'email')).toBe(true);
+    expect(done.report?.email?.dmarcRecords.length).toBe(0);
+    expect(done.report?.findings.some((f) => f.title.includes('DMARC'))).toBe(true);
+    expect(done.report?.findings.some((f) => f.title.includes('STARTTLS'))).toBe(true);
     svc.stop();
   });
 
@@ -234,6 +252,13 @@ describe('ScannerService integration', () => {
     expect(done.report?.cveContext.length).toBeGreaterThan(0);
     const vulnFindings = done.report?.findings.filter((f) => f.category === 'vulnerability') ?? [];
     expect(vulnFindings.length).toBeGreaterThan(0);
+    // httpx stub output surfaces as an independent HTTP surface observation.
+    expect(done.report?.httpx?.status).toBe(200);
+    expect(done.report?.httpx?.server).toBe('nginx');
+    expect(done.report?.findings.some((f) => f.title.includes('Secure/HttpOnly'))).toBe(true);
+    // banner agreement: in-process http (nginx) + httpx (nginx) corroborate the port 80/443 findings
+    const webPort = done.report?.findings.find((f) => f.title.includes('Open TCP port 443'));
+    expect(webPort?.corroboration?.level).toBe('multi');
     svc.stop();
   });
 
@@ -249,6 +274,7 @@ describe('ScannerService integration', () => {
       rdap: fakeRda,
       osv: fakeOsv,
       downloadJs: async () => null,
+      verifyLive: async (urls) => new Set(urls.filter((u) => u.includes('.bak'))),
     });
     svc.start();
     const job = await svc.createJob({ target: 'example.com', profile: 'quick', modules: ['tls-hardening', 'content-discovery'] });
@@ -257,6 +283,17 @@ describe('ScannerService integration', () => {
     expect(done.status).toBe('completed');
     expect(done.report?.tlsHardening?.weaknesses.length).toBeGreaterThan(0);
     expect(done.report?.discoveredPaths.length).toBeGreaterThan(0);
+    const archived = done.report?.archivedUrls ?? [];
+    expect(archived.length).toBeGreaterThan(0);
+    // subdomain-bearing archived lines are filtered out (exact-host only)
+    expect(archived.some((a) => a.url.includes('evil-sub'))).toBe(false);
+    expect(archived.some((a) => a.category === 'credential-in-url' && a.tokenParam === 'api_key')).toBe(true);
+    expect(archived.some((a) => a.category === 'sensitive-path' && a.live)).toBe(true);
+    const cred = done.report?.findings.find((f) => f.title.includes('credential-like parameters'));
+    expect(cred?.severity).toBe('critical');
+    const sensitive = done.report?.findings.find((f) => f.title.includes('sensitive path(s)'));
+    expect(sensitive?.severity).toBe('high');
+    expect(sensitive?.description).toContain('still answer');
     svc.stop();
   });
 

@@ -80,10 +80,67 @@ describe('renderMarkdown', () => {
     const md = renderMarkdown(report);
     expect(md).toContain('Discovered Ports & Services');
     expect(md).toContain('| 80 |');
-    expect(md).toContain('HTTP Observations');
-    expect(md).toContain('TLS Observations');
+    expect(md).toContain('HTTP Header Inspection');
+    expect(md).toContain('TLS Certificate Inspection');
+    expect(md).toContain('Technical Appendix');
     expect(md).toContain('WordPress');
     expect(md).toContain('TCP-only.');
+  });
+
+  it('renders a cross-tool validation matrix and a premium upsell teaser by default', () => {
+    const report = baseReport({
+      findings: [
+        {
+          id: 'F-001',
+          category: 'exposure',
+          severity: 'medium',
+          title: 'Open TCP port 443 (https)',
+          description: 'Exposed.',
+          evidence: ['port:443'],
+          affected: 'example.com:443',
+          confidence: 'high',
+          verified: true,
+          remediation: 'Restrict.',
+          sourceTools: ['nmap', 'tls'],
+          corroboration: { level: 'multi', supporting: ['nmap', 'tls'], conflicting: [] },
+          playbookKey: 'open-port',
+        },
+      ],
+    });
+    const md = renderMarkdown(report);
+    expect(md).toContain('## Cross-Tool Validation Matrix');
+    expect(md).toContain('Confirmed by 2 independent sources');
+    expect(md).toContain('Premium add-on');
+    expect(md).toContain('How to Resolve (Remediation Playbook)');
+  });
+
+  it('renders the full remediation playbook when the premium module ran', () => {
+    const report = baseReport({
+      meta: { ...baseReport().meta, modules: ['remediation-playbook'] },
+      technologies: [{ name: 'nginx', version: '1.24' }],
+      findings: [
+        {
+          id: 'F-001',
+          category: 'misconfiguration',
+          severity: 'low',
+          title: 'Missing security response headers',
+          description: 'Missing headers.',
+          evidence: ['missing: content-security-policy'],
+          affected: 'https://example.com/',
+          confidence: 'high',
+          verified: true,
+          remediation: 'Add headers.',
+          sourceTools: ['http'],
+          corroboration: { level: 'single', supporting: ['http'], conflicting: [] },
+          playbookKey: 'missing-headers',
+        },
+      ],
+    });
+    const md = renderMarkdown(report);
+    expect(md).not.toContain('Premium add-on');
+    expect(md).toContain('How to resolve: Missing security response headers');
+    expect(md).toContain('30-Day Remediation Roadmap');
+    expect(md).toContain('add_header Strict-Transport-Security');
   });
 });
 

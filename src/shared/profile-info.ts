@@ -32,14 +32,22 @@ function toolLabel(tool: ToolName): string {
       return 'WHOIS (RDAP)';
     case 'nuclei':
       return 'nuclei';
+    case 'httpx':
+      return 'httpx';
     case 'retire':
       return 'retire.js';
     case 'testssl':
       return 'testssl.sh';
     case 'feroxbuster':
       return 'feroxbuster';
+    case 'waybackurls':
+      return 'waybackurls';
+    case 'email':
+      return 'email & DNS posture';
     case 'osv':
       return 'OSV';
+    default:
+      return tool;
   }
 }
 

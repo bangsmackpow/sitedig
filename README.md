@@ -12,7 +12,9 @@ Built with Next.js + a dedicated TypeScript scanner worker. Ships as a single pu
 
 ## What it does
 
-SiteDig executes a bounded, TCP-only reconnaissance scan of a domain, hostname, IPv4, IPv6, or full URL using safe, detection-oriented Linux tools — `nmap` (TCP connect), `whatweb`, `curl`/HTTP header inspection, in-process TLS certificate inspection, and conditional local-only `wpscan`. Optional premium add-on modules add passive subdomain discovery, curated nuclei/retire.js checks, testssl.sh hardening, content discovery, and OSV CVE enrichment. Each scan produces a **dual-format report** (client-facing executive summary + technical appendix) that you download as a **PDF** or **Markdown** file.
+SiteDig executes a bounded, TCP-only reconnaissance scan of a domain, hostname, IPv4, IPv6, or full URL using safe, detection-oriented Linux tools — `nmap` (TCP connect), `whatweb`, `curl`/HTTP header inspection, in-process TLS certificate inspection, and conditional local-only `wpscan`. Optional premium add-on modules add passive subdomain discovery, curated nuclei/retire.js/httpx checks, testssl.sh hardening, content discovery with Wayback Machine URL history, email/DNS security posture (SPF/DMARC/MTA-STS/MX STARTTLS), OSV CVE enrichment, and a client-ready Remediation Playbook. Each scan produces a **dual-format report** (client-facing executive summary + technical appendix) that you download as a **PDF** or **Markdown** file.
+
+Findings are attributed to the tools that observed them and cross-validated: where two or more independent tools agree, the finding is marked **confirmed**; where tools disagree, the report says so explicitly so nothing is acted on blindly. Each finding is also tagged with the tools that produced its evidence in a **Cross-Tool Validation Matrix**.
 
 It is **not** a vulnerability scanner. It never runs exploitation, brute force, UDP, all-port, or CIDR scans, and the free core performs no external vulnerability-database lookups (the `cve-context` module and the optional WPScan API token are opt-in).
 
@@ -242,25 +244,28 @@ SiteDig ships a set of **Premium add-on modules**. A user must hold an active Pr
 
 | Module | Env id | Tools | What it adds |
 | --- | --- | --- | --- |
-| Asset & DNS Discovery | `asset-discovery` | subfinder, dnsx, WHOIS (RDAP) | Passive subdomain enumeration, DNS records, registration intel |
-| Vulnerability Scan | `vuln-scan` | nuclei (curated allowlist), retire.js | Template-driven detection + vulnerable-JS checks |
+| Asset & DNS Discovery | `asset-discovery` | subfinder, dnsx, WHOIS (RDAP), email posture | Passive subdomain enumeration, DNS records, registration intel, and email/DNS security posture (SPF, DMARC, MTA-STS, TLS-RPT, MX, STARTTLS) |
+| Vulnerability Scan | `vuln-scan` | nuclei (curated allowlist), retire.js, httpx | Template-driven detection, vulnerable-JS checks, and an independent HTTP surface re-check (status, headers, cookies, TLS, tech) for cross-validation |
 | TLS Hardening Audit | `tls-hardening` | testssl.sh | Protocols, ciphers, known TLS weaknesses |
-| Content Discovery | `content-discovery` | feroxbuster | Rate-limited directory/path discovery against a bounded wordlist |
+| Content Discovery | `content-discovery` | feroxbuster, waybackurls | Rate-limited directory/path discovery plus Wayback Machine URL history with live re-verification of sensitive paths |
 | CVE Context | `cve-context` | OSV API | Enrich detected technologies with known-CVE counts |
+| Remediation Playbook | `remediation-playbook` | *(report-only)* | Appends per-finding fix plans with exact nginx/Apache commands, verification checks, owner/effort, references, and a prioritized 30-day roadmap |
 
-Each module's tools are guarded by argument allowlists (`assertApprovedArgs`), per-tool timeouts, and non-destructive template/wordlist policies. The vulnerability-scan module runs **only** the curated `NUCLEI_TEMPLATES` allowlist.
+Each module's tools are guarded by argument allowlists (`assertApprovedArgs`), per-tool timeouts, and non-destructive template/wordlist policies. The vulnerability-scan module runs **only** the curated `NUCLEI_TEMPLATES` allowlist, and `waybackurls` runs with `--no-subs` so live re-verification never leaves the exact target host.
 
 ## Report contents
 
-Each report includes:
+Each report is organized as **Executive Summary → Findings → Cross-Tool Validation Matrix → How to Resolve → Technical Appendix → Tool Execution/Limitations**:
 
-- Scan metadata (target, host, path, profile, port scope, timestamps, tool versions)
-- Executive summary with severity roll-up and key observations
-- Findings with category (`Exposure`, `Misconfiguration`, `Outdated Technology`, `WordPress Finding`, `Informational`), severity, evidence, confidence, and remediation
-- Discovered ports/services, HTTP observations (headers, security headers, redirects), TLS certificate details, detected technologies, and WordPress notes
+- Scan metadata (target, host, path, profile, port scope, active modules, timestamps, tool versions)
+- Executive summary with severity roll-up, independent confirmations, and key observations
+- Findings with category (`Exposure`, `Misconfiguration`, `Outdated Technology`, `WordPress Finding`, `Vulnerability`, `Informational`), severity, evidence grouped as "what the tools saw", confidence, and a cross-tool validation line
+- **Cross-Tool Validation Matrix** — a finding × tool grid showing which tools independently observed (✓), disagreed (✗), or did not apply; multi-source agreement raises confidence and disagreement is flagged for verification
+- **How to Resolve (Remediation Playbook)** — with the Premium `remediation-playbook` module: per-finding steps with exact nginx/Apache commands, verification commands, owner/effort, references, and a prioritized 30-day roadmap. Without the module, a one-line remediation plus a Premium teaser is shown
+- **Technical Appendix** — one subsection per tool: Nmap ports/services, HTTP header inspection, httpx surface validation, TLS certificate inspection, testssl.sh, WhatWeb technologies, WordPress/WPScan, Subfinder subdomains, DNS records, email/DNS posture, RDAP/WHOIS, Nuclei/Retire vulnerabilities, Feroxbuster paths, Wayback URL history, and OSV CVE context
 - Sanitized tool execution summary and explicit limitations
 
-Severity ratings are **inferred** from observed evidence and clearly flagged as such; the report states that this is a detection-oriented reconnaissance report, not a vulnerability assessment.
+Severity ratings are **inferred** from observed evidence and clearly flagged as such; the report states that this is a detection-oriented reconnaissance report, not a vulnerability assessment. Archived credential-bearing URLs are stored with their secret values masked — the value is never written into a report.
 
 ## CI/CD
 

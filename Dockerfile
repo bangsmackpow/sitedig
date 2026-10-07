@@ -97,25 +97,35 @@ ARG NUCLEI_VERSION=v3.11.1
 ARG NUCLEI_TEMPLATES_VERSION=v10.4.7
 ARG FEROXBUSTER_VERSION=v2.11.0
 ARG TESTSSL_VERSION=v3.2.2
+ARG HTTPX_VERSION=v1.6.9
+ARG WAYBACKURLS_VERSION=v0.1.0
 RUN apt-get update && apt-get install -y --no-install-recommends unzip bsdmainutils dnsutils procps which \
     && cd /tmp \
     && curl -fsSL "https://github.com/projectdiscovery/subfinder/releases/download/${SUBFINDER_VERSION}/subfinder_${SUBFINDER_VERSION#v}_linux_amd64.zip" -o subfinder.zip \
     && curl -fsSL "https://github.com/projectdiscovery/dnsx/releases/download/${DNSX_VERSION}/dnsx_${DNSX_VERSION#v}_linux_amd64.zip" -o dnsx.zip \
     && curl -fsSL "https://github.com/projectdiscovery/nuclei/releases/download/${NUCLEI_VERSION}/nuclei_${NUCLEI_VERSION#v}_linux_amd64.zip" -o nuclei.zip \
+    && curl -fsSL "https://github.com/projectdiscovery/httpx/releases/download/${HTTPX_VERSION}/httpx_${HTTPX_VERSION#v}_linux_amd64.zip" -o httpx.zip \
     && curl -fsSL "https://github.com/epi052/feroxbuster/releases/download/${FEROXBUSTER_VERSION}/x86_64-linux-feroxbuster.zip" -o ferox.zip \
     && curl -fsSL "https://github.com/drwetter/testssl.sh/archive/refs/tags/${TESTSSL_VERSION}.tar.gz" -o testssl.tar.gz \
-    && for f in subfinder.zip dnsx.zip nuclei.zip ferox.zip; do unzip -o "$f"; done \
+    && curl -fsSL "https://github.com/tomnomnom/waybackurls/releases/download/${WAYBACKURLS_VERSION}/waybackurls-linux-amd64-${WAYBACKURLS_VERSION#v}.tgz" -o waybackurls.tgz \
+    && for f in subfinder.zip dnsx.zip nuclei.zip httpx.zip ferox.zip; do unzip -o "$f"; done \
     && tar xzf testssl.tar.gz \
+    && mkdir -p /tmp/waybackurls && tar xzf waybackurls.tgz -C /tmp/waybackurls \
     && mv "testssl.sh-${TESTSSL_VERSION#v}" /opt/testssl \
-    && chmod +x subfinder dnsx nuclei feroxbuster \
-    && mv subfinder dnsx nuclei feroxbuster /usr/local/bin/ \
+    && chmod +x subfinder dnsx nuclei httpx feroxbuster \
+    && mv subfinder dnsx nuclei httpx feroxbuster /usr/local/bin/ \
+    # waybackurls release archive layout varies; locate the binary regardless.
+    && WB_BIN="$(find /tmp/waybackurls -type f -name 'waybackurls*' | head -1)" \
+    && test -n "$WB_BIN" \
+    && mv "$WB_BIN" /usr/local/bin/waybackurls \
+    && chmod +x /usr/local/bin/waybackurls \
     # testssl.sh must run via bash with its own dir intact; use a shim.
     && printf '#!/bin/sh\nexec bash /opt/testssl/testssl.sh "$@"\n' > /usr/local/bin/testssl \
     && chmod +x /usr/local/bin/testssl \
     && npm install -g retire --silent \
     # Fail-fast runtime checks: every module binary must execute.
-    && { subfinder -version && dnsx -version && nuclei -version && feroxbuster --version && retire --version && bash /opt/testssl/testssl.sh -V; } >/dev/null 2>&1 \
-       || { echo 'ERROR: one or more module tools failed to run at runtime'; subfinder -version 2>&1; dnsx -version 2>&1; nuclei -version 2>&1; feroxbuster --version 2>&1; retire --version 2>&1; bash /opt/testssl/testssl.sh -V 2>&1; exit 1; } \
+    && { subfinder -version && dnsx -version && nuclei -version && httpx -version && feroxbuster --version && waybackurls -h && retire --version && bash /opt/testssl/testssl.sh -V; } >/dev/null 2>&1 \
+       || { echo 'ERROR: one or more module tools failed to run at runtime'; subfinder -version 2>&1; dnsx -version 2>&1; nuclei -version 2>&1; httpx -version 2>&1; feroxbuster --version 2>&1; waybackurls -h 2>&1; retire --version 2>&1; bash /opt/testssl/testssl.sh -V 2>&1; exit 1; } \
     # Curated, non-destructive Nuclei template set (allowlist). Installed from a
     # pinned nuclei-templates tarball (deterministic; no HOME/config dependency).
     # FAIL the build if any allowlisted template file is missing.

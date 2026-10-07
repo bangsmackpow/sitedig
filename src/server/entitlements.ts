@@ -11,6 +11,7 @@ export const MODULE_ENTITLEMENT_KEYS: Record<ModuleId, string> = {
   'tls-hardening': 'module:tls-hardening',
   'content-discovery': 'module:content-discovery',
   'cve-context': 'module:cve-context',
+  'remediation-playbook': 'module:remediation-playbook',
 };
 
 export type EntitlementSource = 'admin' | 'stripe';

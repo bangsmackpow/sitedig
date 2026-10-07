@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
   parseDnsxJson,
   parseFeroxJson,
+  parseHttpxJsonl,
   parseNucleiJsonl,
   parseRetireJson,
   parseSubfinderJson,
   parseTestsslJson,
+  parseWaybackUrls,
 } from '../src/worker/parsers';
 
 describe('parseSubfinderJson', () => {
@@ -119,5 +121,52 @@ describe('parseFeroxJson', () => {
     const out = parseFeroxJson(raw);
     expect(out).toHaveLength(1);
     expect(out[0].path).toBe('/ok');
+  });
+});
+
+describe('parseHttpxJsonl', () => {
+  it('parses status, server, tech, headers and cookie flags', () => {
+    const raw = JSON.stringify({
+      url: 'https://example.com/',
+      status_code: 200,
+      webserver: 'nginx',
+      tech: ['PHP', 'nginx'],
+      headers: { Server: ['nginx'], 'Set-Cookie': ['a=1; Path=/; Secure; HttpOnly', 'b=2; Path=/'] },
+    });
+    const out = parseHttpxJsonl(raw);
+    expect(out).not.toBeNull();
+    expect(out?.status).toBe(200);
+    expect(out?.server).toBe('nginx');
+    expect(out?.technologies).toEqual(['PHP', 'nginx']);
+    expect(out?.headers['set-cookie']).toContain('a=1');
+    expect(out?.cookies).toHaveLength(2);
+    expect(out?.cookies[0]).toEqual({ name: 'a', secure: true, httpOnly: true });
+    expect(out?.cookies[1]).toEqual({ name: 'b', secure: false, httpOnly: false });
+  });
+
+  it('returns null when no JSON record is present', () => {
+    expect(parseHttpxJsonl('not json\nrandom text')).toBeNull();
+  });
+});
+
+describe('parseWaybackUrls', () => {
+  it('keeps exact-host URLs, strips dates, and classifies exposures', () => {
+    const raw = [
+      '2021-01-02T03:04:05Z https://example.com/index.html',
+      'https://example.com/.git/config',
+      'https://example.com/wp-config.php.bak',
+      'https://example.com/export?api_key=abcdef123456',
+      'https://evil.example.net/admin',
+      'https://sub.example.com/admin',
+    ].join('\n');
+    const out = parseWaybackUrls(raw, 'example.com');
+    // evil.example.net and sub.example.com are both filtered (exact-host only)
+    expect(out).toHaveLength(4);
+    expect(out.some((a) => a.path === '/index.html' && a.category === 'other')).toBe(true);
+    expect(out.find((a) => a.path === '/.git/config')?.category).toBe('sensitive-path');
+    expect(out.find((a) => a.path === '/wp-config.php.bak')?.category).toBe('sensitive-path');
+    const cred = out.find((a) => a.category === 'credential-in-url');
+    expect(cred?.tokenParam).toBe('api_key');
+    expect(cred?.url).not.toContain('abcdef123456'); // value never stored separately
   });
 });

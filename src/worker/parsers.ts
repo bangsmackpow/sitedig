@@ -1,8 +1,11 @@
 import type {
+  ArchivedUrl,
+  ArchivedUrlCategory,
   DiscoveredPath,
   DiscoveredPort,
   DiscoveredSubdomain,
   DnsRecord,
+  HttpxObservation,
   TlsHardeningResult,
   VulnerabilityFinding,
 } from '../shared/types';
@@ -324,4 +327,124 @@ export function parseWpscanJson(raw: string): WpscanResult | null {
     wordpressVersion: typeof wp.version === 'string' ? wp.version : null,
     notes,
   };
+}
+
+/** Normalize a httpx headers map (values may be strings or string arrays). */
+function normalizeHeaders(raw: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!raw || typeof raw !== 'object') return out;
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    const lower = key.toLowerCase();
+    if (Array.isArray(value)) out[lower] = value.map((v) => String(v)).join(', ');
+    else if (value !== undefined && value !== null) out[lower] = String(value);
+  }
+  return out;
+}
+
+/** Parse the first record of httpx `-json` output (JSONL) into an observation. */
+export function parseHttpxJsonl(raw: string): HttpxObservation | null {
+  for (const line of raw.split(/\r?\n/)) {
+    const t = line.trim();
+    if (!t || !t.startsWith('{')) continue;
+    let obj: Record<string, unknown>;
+    try {
+      obj = JSON.parse(t) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    const headers = normalizeHeaders(obj.headers);
+    const setCookie = headers['set-cookie'] ?? '';
+    const cookies = setCookie
+      ? setCookie
+          .split(/,(?=\s*[A-Za-z0-9_-]+=)/)
+          .map((c) => c.trim())
+          .filter(Boolean)
+          .map((c) => ({
+            name: c.split('=')[0].trim(),
+            secure: /;\s*secure/i.test(c),
+            httpOnly: /;\s*httponly/i.test(c),
+          }))
+      : [];
+    const status = typeof obj.status_code === 'number' ? obj.status_code : typeof obj.status === 'number' ? obj.status : null;
+    let tech: string[] = [];
+    if (Array.isArray(obj.tech)) tech = (obj.tech as unknown[]).map(String);
+    else if (typeof obj.tech === 'string' && obj.tech) tech = obj.tech.split(',').map((s) => s.trim());
+    const finalUrl = typeof obj.final_url === 'string' && obj.final_url ? obj.final_url : typeof obj.url === 'string' ? obj.url : null;
+    return {
+      url: typeof obj.url === 'string' ? obj.url : '',
+      status,
+      finalUrl,
+      server: typeof obj.webserver === 'string' && obj.webserver ? obj.webserver : headers['server'] ?? null,
+      headers,
+      cookies,
+      tlsVersion: typeof obj.tls_version === 'string' && obj.tls_version ? obj.tls_version : null,
+      certExpiry:
+        (typeof obj.tls_expiration_date === 'string' && obj.tls_expiration_date) ||
+        (typeof obj.cert_expiry === 'string' && obj.cert_expiry) ||
+        null,
+      technologies: tech,
+      error: typeof obj.error === 'string' && obj.error ? obj.error : null,
+    };
+  }
+  return null;
+}
+
+const SENSITIVE_PATH_PATTERNS: RegExp[] = [
+  /\.git\//i,
+  /\.env(\.|\?|$|#)/i,
+  /\.svn\//i,
+  /wp-config\.php/i,
+  /\.aws\/credentials/i,
+  /id_rsa/i,
+  /\.sql(\?|$)/i,
+  /\.bak(\?|$)/i,
+  /\.old(\?|$)/i,
+  /backup[-_.]/i,
+  /dump[-_.]/i,
+  /phpmyadmin/i,
+  /adminer/i,
+  /web\.config/i,
+  /\.DS_Store/i,
+  /server-status/i,
+  /debug\//i,
+];
+
+const TOKEN_QUERY_RE = /(api[_-]?key|apikey|access[_-]?token|auth[_-]?token|token|secret|password|passwd|session[_-]?id|sig|signature|private[_-]?key)([a-z0-9_-]*)=([^&]{8,})/i;
+
+/** Classify a Wayback Machine URL list and mark sensitive exposures. */
+export function parseWaybackUrls(raw: string, targetHost: string): ArchivedUrl[] {
+  const out: ArchivedUrl[] = [];
+  const seen = new Set<string>();
+  for (const line of raw.split(/\r?\n/)) {
+    // With --dates the first column is an RFC3339 timestamp; strip it.
+    const match = line.trim().match(/^(?:\S+\s+)?(https?:\/\/\S+)$/i);
+    const url = match?.[1];
+    if (!url) continue;
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      continue;
+    }
+    const host = parsed.hostname.toLowerCase();
+    // Safety: only keep exact-host URLs (never subdomains we did not validate).
+    if (host !== targetHost.toLowerCase()) continue;
+    const path = parsed.pathname;
+    if (!path || seen.has(path)) continue;
+    seen.add(path);
+    let category: ArchivedUrlCategory = 'other';
+    let tokenParam: string | null = null;
+    let outUrl = url;
+    if (SENSITIVE_PATH_PATTERNS.some((re) => re.test(path))) category = 'sensitive-path';
+    const tokenMatch = parsed.search ? parsed.search.slice(1).match(TOKEN_QUERY_RE) : null;
+    if (tokenMatch) {
+      category = 'credential-in-url';
+      tokenParam = decodeURIComponent(tokenMatch[1]).toLowerCase();
+      // Never store the secret value in the report; mask it in place.
+      const maskedSearch = parsed.search.replace(TOKEN_QUERY_RE, (_m, p1: string, p2: string) => `${p1}${p2}=***`);
+      outUrl = `${parsed.origin}${path}${maskedSearch}`;
+    }
+    out.push({ url: outUrl, path, category, tokenParam, live: false });
+  }
+  return out;
 }

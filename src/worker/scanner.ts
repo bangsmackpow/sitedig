@@ -8,23 +8,28 @@ import { expandProfile, expandModules, assertApprovedArgs } from '../shared/prof
 import { buildExecutiveSummary, renderMarkdown } from '../shared/report';
 import { parseTarget } from '../shared/targets';
 import type {
+  ArchivedUrl,
   CustomScanOptions,
   DiscoveredPath,
   DiscoveredPort,
   DiscoveredSubdomain,
   DnsRecord,
+  EmailPostureResult,
+  HttpxObservation,
   Job,
   ModuleId,
   NormalizedTarget,
   ReportModel,
   ScanProfile,
   TlsHardeningResult,
+  ToolName,
   ToolResultRecord,
   VulnerabilityFinding,
   WhoisInfo,
   CveContextFinding,
 } from '../shared/types';
 import { assertNoRebinding, defaultResolver, resolveAndValidate, type DnsResolver, type ResolveResult } from './dns';
+import { lookupEmailPosture } from './email-posture';
 import { buildFindings } from './findings';
 import { httpCheck as defaultHttpCheck, tlsCheck as defaultTlsCheck } from './http';
 import { formatHostForUrl } from '../shared/net';
@@ -35,9 +40,11 @@ import {
   parseWpscanJson,
   parseSubfinderJson,
   parseNucleiJsonl,
+  parseHttpxJsonl,
   parseRetireJson,
   parseTestsslJson,
   parseFeroxJson,
+  parseWaybackUrls,
   type WpscanResult,
 } from './parsers';
 import { renderPdf } from './pdf';
@@ -64,6 +71,29 @@ interface Observations {
   tlsHardening: TlsHardeningResult | null;
   discoveredPaths: DiscoveredPath[];
   cveContext: CveContextFinding[];
+  httpx: HttpxObservation | null;
+  archivedUrls: ArchivedUrl[];
+  email: EmailPostureResult | null;
+}
+
+/**
+ * Default live re-verification of archived URLs: bounded, redirect-free HEAD
+ * requests (redirects are treated as not-live; we never follow an unvalidated
+ * Location header here — the archived URLs are already same-host by parser
+ * construction).
+ */
+async function defaultVerifyLive(urls: string[], signal: AbortSignal): Promise<Set<string>> {
+  const live = new Set<string>();
+  for (const url of urls.slice(0, 15)) {
+    try {
+      const perReq = AbortSignal.any([signal, AbortSignal.timeout(5_000)]);
+      const res = await fetch(url, { method: 'HEAD', redirect: 'manual', signal: perReq, headers: { 'user-agent': DEFAULT_USER_AGENT } });
+      if (res.status >= 200 && res.status < 300) live.add(url);
+    } catch {
+      // skip unreachable candidate
+    }
+  }
+  return live;
 }
 
 /**
@@ -142,6 +172,8 @@ export interface ScannerDeps {
   tlsCheck?: typeof defaultTlsCheck;
   rdap?: typeof rdapLookup;
   osv?: typeof osvLookup;
+  emailPosture?: typeof lookupEmailPosture;
+  verifyLive?: (urls: string[], signal: AbortSignal) => Promise<Set<string>>;
   downloadJs?: (job: Job, jsDir: string, controller: AbortController) => Promise<string | null>;
 }
 
@@ -150,7 +182,7 @@ const LIMITATIONS = [
   'Each scan is capped at the configured scan duration and port scope.',
   'CIDR/network-range scanning is not supported.',
   'Detection-oriented reconnaissance only; no exploitation or vulnerability confirmation is performed.',
-  'No external vulnerability database lookups are performed.',
+  'External data sources are limited to the OSV vulnerability database and (with the relevant modules) the Wayback Machine, WHOIS/RDAP, and the optional WPScan API token; no Shodan/Censys integration.',
   'Severity ratings are inferred from observed evidence and should be verified against your environment.',
 ];
 
@@ -161,6 +193,8 @@ export class ScannerService {
   private readonly tlsCheckImpl: typeof defaultTlsCheck;
   private readonly rdapImpl: typeof rdapLookup;
   private readonly osvImpl: typeof osvLookup;
+  private readonly emailImpl: typeof lookupEmailPosture;
+  private readonly verifyLiveImpl: NonNullable<ScannerDeps['verifyLive']>;
   private readonly downloadJsImpl: NonNullable<ScannerDeps['downloadJs']>;
   private readonly aborts = new Map<string, AbortController>();
   private readonly validatedTargets = new Map<string, ResolveResult>();
@@ -176,6 +210,8 @@ export class ScannerService {
     this.tlsCheckImpl = deps.tlsCheck ?? defaultTlsCheck;
     this.rdapImpl = deps.rdap ?? rdapLookup;
     this.osvImpl = deps.osv ?? osvLookup;
+    this.emailImpl = deps.emailPosture ?? lookupEmailPosture;
+    this.verifyLiveImpl = deps.verifyLive ?? defaultVerifyLive;
     this.downloadJsImpl = deps.downloadJs ?? ((job, jsDir, controller) => this.downloadJsForRetire(job, jsDir, controller));
 
     const runnerDeps: RunnerDeps = {
@@ -392,6 +428,9 @@ export class ScannerService {
         tlsHardening: null,
         discoveredPaths: [],
         cveContext: [],
+        httpx: null,
+        archivedUrls: [],
+        email: null,
       };
       const toolResults: ToolResultRecord[] = [];
       const warnings: string[] = [];
@@ -451,6 +490,11 @@ export class ScannerService {
             const cve = await this.osvImpl(packages);
             observations.cveContext = cve;
             record.ok = true;
+          } else if (step.tool === 'email') {
+            const posture = await this.emailImpl(job.target.host);
+            observations.email = posture;
+            record.ok = !posture.error;
+            record.error = posture.error;
           } else if (step.tool === 'dnsx') {
             // In-process DNS enumeration (the dnsx binary hangs in containers).
             const records = await dnsRecordLookup(job.target.host);
@@ -493,7 +537,7 @@ export class ScannerService {
             // feroxbuster a moderate one, everything else 60s. All bounded by
             // the job cap.
             const isHeavy = step.tool === 'nuclei' || step.tool === 'testssl';
-            const isModerate = step.tool === 'feroxbuster';
+            const isModerate = step.tool === 'feroxbuster' || step.tool === 'waybackurls';
             const stepCap = isHeavy ? MAX_STEP_TIMEOUT_MS : isModerate ? MODERATE_STEP_TIMEOUT_MS : 60_000;
             const stepTimeout = Math.max(10_000, Math.min(stepCap, effectiveTimeout - (Date.now() - startedAt)));
             if (step.tool === 'nuclei') {
@@ -606,6 +650,27 @@ export class ScannerService {
               const outFile = path.join(jobDir, 'ferox.json');
               const raw = fs.existsSync(outFile) ? fs.readFileSync(outFile, 'utf8') : result.output;
               observations.discoveredPaths = parseFeroxJson(raw);
+            } else if (step.tool === 'httpx') {
+              const outFile = path.join(jobDir, 'httpx.jsonl');
+              const raw = fs.existsSync(outFile) ? fs.readFileSync(outFile, 'utf8') : result.output;
+              const parsed = parseHttpxJsonl(raw);
+              if (parsed) {
+                observations.httpx = parsed;
+              } else if (!record.error) {
+                record.error = 'produced no parseable output';
+              }
+            } else if (step.tool === 'waybackurls') {
+              const outFile = path.join(jobDir, 'wayback.txt');
+              const raw = fs.existsSync(outFile) ? fs.readFileSync(outFile, 'utf8') : result.output;
+              const archived = parseWaybackUrls(raw, job.target.host);
+              const candidates = archived.filter((a) => a.category !== 'other').map((a) => a.url);
+              if (candidates.length > 0 && !controller.signal.aborted) {
+                const live = await this.verifyLiveImpl(candidates, controller.signal);
+                for (const a of archived) {
+                  if (live.has(a.url)) a.live = true;
+                }
+              }
+              observations.archivedUrls = archived;
             }
             record.ok = !record.error;
           }
@@ -659,6 +724,9 @@ export class ScannerService {
         }
       }
 
+      const toolOk: Partial<Record<ToolName, boolean>> = {};
+      for (const r of toolResults) toolOk[r.tool] = r.ok;
+
       const findings = buildFindings({
         ports: observations.ports,
         http: observations.http,
@@ -674,6 +742,11 @@ export class ScannerService {
         cveContext: observations.cveContext,
         host: job.target.host,
         path: job.target.path,
+        httpx: observations.httpx,
+        archivedUrls: observations.archivedUrls,
+        email: observations.email,
+        tlsHardening: observations.tlsHardening,
+        toolOk,
       });
 
       const finishedAt = new Date();
@@ -689,6 +762,7 @@ export class ScannerService {
         toolVersions,
         status: 'completed' as const,
         warnings,
+        modules: job.modules,
       };
 
       const executiveSummary = buildExecutiveSummary(meta, findings, observations.ports.length);
@@ -716,6 +790,9 @@ export class ScannerService {
         tlsHardening: observations.tlsHardening,
         discoveredPaths: observations.discoveredPaths,
         cveContext: observations.cveContext,
+        httpx: observations.httpx,
+        archivedUrls: observations.archivedUrls,
+        email: observations.email,
         toolResults,
         limitations: LIMITATIONS,
       };
@@ -814,7 +891,7 @@ export class ScannerService {
   }
 
   private async captureVersions(job: Job, runnerDeps: RunnerDeps) {
-    const tools = ['nmap', 'whatweb', 'wpscan', 'subfinder', 'dnsx', 'nuclei', 'feroxbuster'] as const;
+    const tools = ['nmap', 'whatweb', 'wpscan', 'subfinder', 'dnsx', 'nuclei', 'httpx', 'feroxbuster'] as const;
     const versions: Array<{ tool: string; version: string | null }> = [];
     for (const tool of tools) {
       if (tool === 'wpscan') {

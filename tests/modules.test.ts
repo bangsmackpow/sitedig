@@ -11,26 +11,39 @@ const opts = {
 };
 
 describe('expandModules', () => {
-  it('expands asset-discovery into subfinder/dnsx/rdap steps', () => {
+  it('expands asset-discovery into subfinder/dnsx/rdap/email steps', () => {
     const steps = expandModules(['asset-discovery'], target, opts);
     const tools = steps.map((s) => s.tool);
-    expect(tools).toEqual(expect.arrayContaining(['subfinder', 'dnsx', 'rdap']));
+    expect(tools).toEqual(expect.arrayContaining(['subfinder', 'dnsx', 'rdap', 'email']));
     const dnsx = steps.find((s) => s.tool === 'dnsx');
     expect(dnsx?.args).toEqual(['example.com']); // in-process node:dns lookup
+    const email = steps.find((s) => s.tool === 'email');
+    expect(email?.args).toEqual(['example.com']); // in-process email posture
   });
 
-  it('expands vuln-scan into nuclei + retire steps', () => {
+  it('expands vuln-scan into nuclei + retire + httpx steps', () => {
     const steps = expandModules(['vuln-scan'], target, opts);
     const tools = steps.map((s) => s.tool);
-    expect(tools).toEqual(expect.arrayContaining(['nuclei', 'retire']));
+    expect(tools).toEqual(expect.arrayContaining(['nuclei', 'retire', 'httpx']));
     const nuclei = steps.find((s) => s.tool === 'nuclei');
     expect(nuclei?.args).toContain('http/misconfiguration');
+    const httpx = steps.find((s) => s.tool === 'httpx');
+    expect(httpx?.args).toContain('https://example.com/shop');
+    expect(httpx?.args).toContain('-td');
   });
 
   it('expands tls-hardening, content-discovery, cve-context', () => {
     const steps = expandModules(['tls-hardening', 'content-discovery', 'cve-context'], target, opts);
     const tools = steps.map((s) => s.tool);
-    expect(tools).toEqual(expect.arrayContaining(['testssl', 'feroxbuster', 'osv']));
+    expect(tools).toEqual(expect.arrayContaining(['testssl', 'feroxbuster', 'waybackurls', 'osv']));
+    const wb = steps.find((s) => s.tool === 'waybackurls');
+    expect(wb?.args).toContain('--no-subs');
+    expect(wb?.args).toContain('example.com');
+  });
+
+  it('adds no tool steps for the report-only remediation-playbook module', () => {
+    const steps = expandModules(['remediation-playbook'], target, opts);
+    expect(steps).toHaveLength(0);
   });
 
   it('respects the target path for web tools', () => {
@@ -58,6 +71,8 @@ describe('assertApprovedArgs for module tools', () => {
     expect(() => assertApprovedArgs('feroxbuster', ['--extract-links'])).toThrow();
     expect(() => assertApprovedArgs('testssl', ['--openssl', 'x'])).toThrow();
     expect(() => assertApprovedArgs('retire', ['--ignore', 'x'])).toThrow();
+    expect(() => assertApprovedArgs('httpx', ['-l', 'hosts.txt'])).toThrow();
+    expect(() => assertApprovedArgs('waybackurls', ['--all'])).toThrow();
   });
 });
 

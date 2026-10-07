@@ -88,4 +88,101 @@ describe('buildFindings', () => {
     const findings = buildFindings(base({ http: { status: null, finalUrl: null, server: null, poweredBy: null, headers: {}, redirects: [], error: 'ECONNREFUSED' } }));
     expect(findings.some((x) => x.title === 'HTTP check could not complete')).toBe(true);
   });
+
+  it('corroborates a web-port exposure across nmap, http, tls, and httpx', () => {
+    const findings = buildFindings(
+      base({
+        ports: [{ port: 443, state: 'open', protocol: 'tcp', service: 'https', version: 'nginx' }],
+        http: { status: 200, finalUrl: 'https://example.com/', server: 'nginx', poweredBy: null, headers: {}, redirects: [], error: null },
+        tls: { connected: true, protocol: 'TLSv1.3', subjectCn: 'example.com', issuerCn: 'CA', validFrom: 'x', validTo: 'y', daysRemaining: 100, selfSigned: false, error: null },
+        httpx: { url: 'https://example.com/', status: 200, finalUrl: 'https://example.com/', server: 'nginx', headers: {}, cookies: [], tlsVersion: 'TLSv1.3', certExpiry: null, technologies: [], error: null },
+      }),
+    );
+    const port443 = findings.find((x) => x.title.includes('Open TCP port 443'));
+    expect(port443?.corroboration?.level).toBe('multi');
+    expect(port443?.corroboration?.supporting).toEqual(expect.arrayContaining(['nmap', 'tls', 'httpx']));
+  });
+
+  it('flags conflicting server banners between http and httpx', () => {
+    const findings = buildFindings(
+      base({
+        http: { status: 200, finalUrl: 'https://example.com/', server: 'nginx', poweredBy: null, headers: { server: 'nginx' }, redirects: [], error: null },
+        httpx: { url: 'https://example.com/', status: 200, finalUrl: 'https://example.com/', server: 'Apache', headers: {}, cookies: [], tlsVersion: null, certExpiry: null, technologies: [], error: null },
+      }),
+    );
+    const banner = findings.find((x) => x.title === 'Web server fingerprint revealed');
+    expect(banner?.corroboration?.level).toBe('conflicting');
+    expect(banner?.confidence).toBe('medium');
+  });
+
+  it('flags cookies missing Secure/HttpOnly from httpx', () => {
+    const findings = buildFindings(
+      base({
+        http: { status: 200, finalUrl: 'https://example.com/', server: null, poweredBy: null, headers: {}, redirects: [], error: null },
+        httpx: {
+          url: 'https://example.com/',
+          status: 200,
+          finalUrl: 'https://example.com/',
+          server: null,
+          headers: {},
+          cookies: [{ name: 'sess', secure: false, httpOnly: false }],
+          tlsVersion: null,
+          certExpiry: null,
+          technologies: [],
+          error: null,
+        },
+      }),
+    );
+    const f = findings.find((x) => x.title.includes('Secure/HttpOnly'));
+    expect(f?.severity).toBe('medium');
+    expect(f?.sourceTools).toEqual(['httpx']);
+    expect(f?.playbookKey).toBe('insecure-cookie');
+  });
+
+  it('produces email-security findings from posture data', () => {
+    const findings = buildFindings(
+      base({
+        email: {
+          domain: 'example.com',
+          spfRecords: ['v=spf1 +all'],
+          dmarcRecords: [],
+          mx: [{ host: 'mail.example.com', priority: 10 }],
+          mtaSts: null,
+          tlsRpt: null,
+          starttls: { checked: true, mx: 'mail.example.com', supported: false, error: null },
+          error: null,
+        },
+      }),
+    );
+    expect(findings.some((x) => x.title.includes('No DMARC'))).toBe(true);
+    const spf = findings.find((x) => x.title.includes('SPF record allows any sender'));
+    expect(spf?.severity).toBe('medium');
+    expect(findings.some((x) => x.title.includes('STARTTLS'))).toBe(true);
+    expect(findings.some((x) => x.title.includes('MTA-STS'))).toBe(true);
+  });
+
+  it('raises archival credential leaks to critical and marks live sensitive paths', () => {
+    const findings = buildFindings(
+      base({
+        archivedUrls: [
+          { url: 'https://example.com/.git/config', path: '/.git/config', category: 'sensitive-path', tokenParam: null, live: true },
+          { url: 'https://example.com/export?api_key=x', path: '/export', category: 'credential-in-url', tokenParam: 'api_key', live: false },
+        ],
+      }),
+    );
+    const cred = findings.find((x) => x.title.includes('credential-like parameters'));
+    expect(cred?.severity).toBe('critical');
+    const sensitive = findings.find((x) => x.title.includes('sensitive path(s)'));
+    expect(sensitive?.severity).toBe('high');
+    expect(sensitive?.description).toContain('still answer');
+  });
+
+  it('assigns a playbook key and source tools to every finding', () => {
+    const findings = buildFindings(base({ ports: [{ port: 22, state: 'open', protocol: 'tcp', service: 'ssh', version: '' }] }));
+    for (const f of findings) {
+      expect(f.sourceTools && f.sourceTools.length > 0).toBe(true);
+      expect(f.corroboration).toBeDefined();
+    }
+    expect(findings.find((f) => f.title.includes('22'))?.playbookKey).toBe('open-ssh');
+  });
 });

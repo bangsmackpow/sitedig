@@ -11,14 +11,23 @@ export type ToolName =
   | 'subfinder'
   | 'dnsx'
   | 'rdap'
+  | 'email'
   | 'nuclei'
+  | 'httpx'
   | 'retire'
   | 'testssl'
   | 'feroxbuster'
+  | 'waybackurls'
   | 'osv';
 
 /** Paid add-on modules. Each maps to a set of tools and is env-gated. */
-export type ModuleId = 'asset-discovery' | 'vuln-scan' | 'tls-hardening' | 'content-discovery' | 'cve-context';
+export type ModuleId =
+  | 'asset-discovery'
+  | 'vuln-scan'
+  | 'tls-hardening'
+  | 'content-discovery'
+  | 'cve-context'
+  | 'remediation-playbook';
 
 export type JobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
 
@@ -58,6 +67,17 @@ export interface ScanRequestInput {
   modules?: ModuleId[];
 }
 
+export type CorroborationLevel = 'single' | 'multi' | 'conflicting';
+
+/** Cross-tool validation state for a finding. */
+export interface Corroboration {
+  level: CorroborationLevel;
+  /** Tools whose independent observations agree with this finding. */
+  supporting: ToolName[];
+  /** Human-readable notes where tools disagree (or failed to confirm). */
+  conflicting: string[];
+}
+
 export interface Finding {
   id: string;
   category: 'exposure' | 'misconfiguration' | 'outdated-technology' | 'wordpress' | 'vulnerability' | 'informational';
@@ -69,6 +89,12 @@ export interface Finding {
   confidence: 'high' | 'medium' | 'low';
   verified: boolean;
   remediation: string | null;
+  /** Tools that contributed evidence to this finding. */
+  sourceTools?: ToolName[];
+  /** Cross-tool validation result; set by the findings builder. */
+  corroboration?: Corroboration;
+  /** Key into the remediation playbook catalog. */
+  playbookKey?: string;
 }
 
 export interface DiscoveredPort {
@@ -130,6 +156,8 @@ export interface ReportMeta {
   toolVersions: ToolVersion[];
   status: 'completed' | 'partial';
   warnings: string[];
+  /** Paid modules enabled for this scan (drives playbook/teaser rendering). */
+  modules?: ModuleId[];
 }
 
 // --- Paid module observation types -----------------------------------------
@@ -188,6 +216,48 @@ export interface CveContextFinding {
   severities: Record<string, number>;
 }
 
+/** Second-source HTTP surface observation produced by httpx. */
+export interface HttpxObservation {
+  url: string;
+  status: number | null;
+  finalUrl: string | null;
+  server: string | null;
+  headers: Record<string, string>;
+  cookies: Array<{ name: string; secure: boolean; httpOnly: boolean }>;
+  tlsVersion: string | null;
+  certExpiry: string | null;
+  technologies: string[];
+  error: string | null;
+}
+
+export type ArchivedUrlCategory = 'sensitive-path' | 'credential-in-url' | 'other';
+
+/** A URL the Wayback Machine has stored for the target host. */
+export interface ArchivedUrl {
+  url: string;
+  path: string;
+  category: ArchivedUrlCategory;
+  /** Query parameter name that leaked a credential (value never stored). */
+  tokenParam: string | null;
+  /** Whether the URL still answers today (live re-verification). */
+  live: boolean;
+}
+
+export interface EmailPostureResult {
+  domain: string;
+  /** SPF TXT records found on the domain (RFC requires at most one). */
+  spfRecords: string[];
+  /** DMARC TXT records found on _dmarc.<domain>. */
+  dmarcRecords: string[];
+  mx: Array<{ host: string; priority: number }>;
+  /** MTA-STS policy id TXT (_mta-sts.<domain>), if any. */
+  mtaSts: string | null;
+  /** TLS reporting policy (_smtp._tls.<domain>), if any. */
+  tlsRpt: string | null;
+  starttls: { checked: boolean; mx: string | null; supported: boolean | null; error: string | null };
+  error: string | null;
+}
+
 export interface ReportModel {
   meta: ReportMeta;
   executiveSummary: string;
@@ -204,6 +274,9 @@ export interface ReportModel {
   tlsHardening: TlsHardeningResult | null;
   discoveredPaths: DiscoveredPath[];
   cveContext: CveContextFinding[];
+  httpx?: HttpxObservation | null;
+  archivedUrls?: ArchivedUrl[];
+  email?: EmailPostureResult | null;
   toolResults: ToolResultRecord[];
   limitations: string[];
 }
