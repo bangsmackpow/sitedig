@@ -41,7 +41,9 @@ Browser ── HTTPS ──> Nginx Proxy Manager ──> web (Next.js, port 3000
                                          worker (scanner, port 8081)
                                               │  execa(argv[]) — no shell
                                               ▼
-                                   nmap · whatweb · HTTP/TLS · wpscan*
+      core:  nmap · whatweb · HTTP/TLS · wpscan*
+      modules: subfinder · dnsx · email-posture · nuclei · retire.js · httpx
+               · testssl.sh · feroxbuster · waybackurls · OSV · RDAP
                                               │
                                               ▼
                                    PDF + Markdown artifacts (temp, TTL-swept)
@@ -253,6 +255,22 @@ SiteDig ships a set of **Premium add-on modules**. A user must hold an active Pr
 
 Each module's tools are guarded by argument allowlists (`assertApprovedArgs`), per-tool timeouts, and non-destructive template/wordlist policies. The vulnerability-scan module runs **only** the curated `NUCLEI_TEMPLATES` allowlist, and `waybackurls` runs with `--no-subs` so live re-verification never leaves the exact target host.
 
+### Diagnosing module enablement
+
+A module is usable only when it is **both** deployment-enabled (`ENABLED_MODULES`) **and** the user holds Premium. If a module appears greyed out, check which gate is failing:
+
+```bash
+curl -s https://your-domain/api/health | jq
+```
+
+`/api/health` returns `version`, the web's effective `enabledModules` and `rawEnabledModules`, and the worker's own `enabledModules`. Read it as follows:
+
+- **No `enabledModules` field** → the running image predates the change; force a re-pull (pin `SITEDIG_TAG` to a `sha-…`/version tag or set `imagePullPolicy: Always`).
+- **`enabledModules` present but missing the module** → `ENABLED_MODULES` was not applied to that service (both `web` and `worker` must have it).
+- **Module listed by both web and worker but still greyed out** → the Premium gate: the user is not an admin, has no active Stripe subscription, and has no per-module entitlement.
+
+The worker also logs `enabledModules` (and the raw `ENABLED_MODULES` value) at startup, which is visible in Docker/Portainer logs.
+
 ## Report contents
 
 Each report is organized as **Executive Summary → Findings → Cross-Tool Validation Matrix → How to Resolve → Technical Appendix → Tool Execution/Limitations**:
@@ -292,7 +310,7 @@ Notes:
 ```bash
 npm run lint           # next lint (web + shared)
 npm run typecheck      # tsc (web) + tsc (worker)
-npm test               # vitest — 124 tests, including stub-tool integration tests
+npm test               # vitest — 138 tests, including stub-tool integration tests
 npm run build          # worker compile + Next.js production build
 npm run validate:compose
 ```
@@ -309,12 +327,13 @@ Test scanners are Node stubs under `tests/fixtures/stub-bin/` — the test suite
 ## Known limitations
 
 - Detection-oriented only — no exploit validation or vulnerability confirmation.
-- External vulnerability APIs beyond the optional WPScan API token (e.g. Shodan, Censys) are not integrated.
+- External data sources are limited to the OSV vulnerability database and, with the relevant modules, the Wayback Machine, WHOIS/RDAP, and the optional WPScan API token. Shodan/Censys and other external vulnerability APIs are not integrated.
+- The `asset-discovery` module opens one `EHLO` connection to the domain's primary MX (after validating it resolves to a public address) to test STARTTLS; no mail is ever sent. The `content-discovery` module queries the Wayback Machine for the target host.
 - `npm audit` reports transitive `postcss`/`sharp` advisories from the Next.js 15 toolchain; these are build/runtime-image-optimization dependencies this app does not exercise. Upgrading to Next 16 (a breaking change) resolves them and is a recommended follow-up.
 
 ## Roadmap (explicitly deferred)
 
-Persistent scan history, Redis-backed queues, CIDR scanning, scan comparison/diffs, custom branding, UDP/all-port scanning, and additional external vulnerability APIs.
+Persistent scan history, Redis-backed queues, CIDR scanning, scan comparison/diffs, custom branding, UDP/all-port scanning, LLM-personalized remediation text, and additional external vulnerability APIs.
 
 ## License
 
