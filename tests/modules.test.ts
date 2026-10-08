@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { assertApprovedArgs, expandModules } from '../src/shared/profiles';
-import { MODULE_DEFINITIONS, parseEnabledModules } from '../src/shared/modules';
+import { MODULE_DEFINITIONS, ALL_MODULES, parseEnabledModules } from '../src/shared/modules';
 import { parseTarget } from '../src/shared/targets';
 
 const target = parseTarget('https://example.com/shop');
@@ -82,6 +82,12 @@ describe('parseEnabledModules', () => {
     expect(set.has('asset-discovery')).toBe(true);
     expect(set.has('vuln-scan')).toBe(true);
     expect(set.has('tls-hardening')).toBe(false);
+  });
+
+  it('recognizes every defined module, including remediation-playbook', () => {
+    const set = parseEnabledModules({ ENABLED_MODULES: ALL_MODULES.join(',') });
+    expect(set.size).toBe(ALL_MODULES.length);
+    expect(set.has('remediation-playbook')).toBe(true);
   });
 
   it('ignores unknown ids and empty values', () => {

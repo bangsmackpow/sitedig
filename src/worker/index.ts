@@ -180,7 +180,13 @@ export function startWorkerServer(opts: { config: ReturnType<typeof getWorkerCon
     const segments = url.pathname.split('/').filter(Boolean);
 
     if (url.pathname === '/health' && method === 'GET') {
-      sendJson(res, 200, { ok: true, service: 'worker', app: APP_NAME, version: APP_VERSION });
+      sendJson(res, 200, {
+        ok: true,
+        service: 'worker',
+        app: APP_NAME,
+        version: APP_VERSION,
+        enabledModules: [...config.enabledModules].sort(),
+      });
       return;
     }
 
@@ -223,13 +229,27 @@ export function startWorkerServer(opts: { config: ReturnType<typeof getWorkerCon
 }
 
 export function main(): void {
+  // Local dev convenience: the worker is a plain Node process (Next.js loads
+  // .env for the web service only), so load .env when present to keep both
+  // services on the same configuration. Never overrides existing env vars, and
+  // is a no-op in the container where env comes from Compose.
+  try {
+    process.loadEnvFile?.();
+  } catch {
+    // no .env file present — ignore
+  }
   const config = getWorkerConfig();
   const log = createLogger({ LOG_LEVEL: config.logLevel });
   const service = new ScannerService(config, log);
   service.start();
   const server = startWorkerServer({ config, service });
   server.listen(config.port, '0.0.0.0', () => {
-    log.info('worker_listening', { port: config.port });
+    log.info('worker_listening', {
+      port: config.port,
+      version: APP_VERSION,
+      enabledModules: [...config.enabledModules].sort(),
+      rawEnabledModules: process.env.ENABLED_MODULES ?? '',
+    });
   });
 
   const shutdown = () => {

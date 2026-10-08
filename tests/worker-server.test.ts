@@ -99,6 +99,15 @@ describe('worker HTTP server', () => {
     expect(body.service).toBe('worker');
   });
 
+  it('surfaces the effective enabled modules in health and the modules list', async () => {
+    server.close();
+    await setup({ enabledModules: new Set<ModuleId>(['remediation-playbook']) });
+    const health = (await (await fetch(`${baseUrl}/health`)).json()) as { enabledModules?: string[] };
+    expect(health.enabledModules).toContain('remediation-playbook');
+    const modules = (await (await fetch(`${baseUrl}/modules`)).json()) as { modules: Array<{ id: string; enabled: boolean }> };
+    expect(modules.modules.find((m) => m.id === 'remediation-playbook')?.enabled).toBe(true);
+  });
+
   it('rejects scans without consent', async () => {
     const { status } = await json('/jobs', {
       method: 'POST',

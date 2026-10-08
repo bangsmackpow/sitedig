@@ -123,8 +123,19 @@ export async function cancelScan(jobId: string): Promise<PublicJobView> {
   throw new WorkerClientError(err.message, res.status, err.code);
 }
 
-export async function workerHealth(): Promise<{ ok: boolean }> {
+export interface WorkerHealth {
+  ok: boolean;
+  version?: string;
+  enabledModules?: string[];
+}
+
+export async function workerHealth(): Promise<WorkerHealth> {
   const res = await request('/health');
-  if (res.ok) return { ok: true };
-  return { ok: false };
+  if (!res.ok) return { ok: false };
+  try {
+    const data = (await res.json()) as { version?: string; enabledModules?: string[] };
+    return { ok: true, version: data.version, enabledModules: data.enabledModules };
+  } catch {
+    return { ok: true };
+  }
 }
