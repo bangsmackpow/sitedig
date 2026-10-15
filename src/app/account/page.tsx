@@ -5,11 +5,23 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { apiFetch, type MePayload } from '@/app/lib/api';
 
+interface TotpSetup {
+  secret: string;
+  otpauthUri: string;
+  qrDataUrl: string;
+}
+
 export default function AccountPage() {
   const router = useRouter();
   const [me, setMe] = useState<MePayload | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  const [mfaPassword, setMfaPassword] = useState('');
+  const [totpSetup, setTotpSetup] = useState<TotpSetup | null>(null);
+  const [totpCode, setTotpCode] = useState('');
+  const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -64,16 +76,108 @@ export default function AccountPage() {
     }
   };
 
+  // --- MFA actions ---------------------------------------------------------
+  const mfaPost = async (body: Record<string, unknown>) =>
+    apiFetch<{ mfa: MePayload['mfa']; recoveryCodes?: string[]; totp?: TotpSetup }>('/api/account/mfa', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+
+  const clearMessages = () => {
+    setError(null);
+    setNotice(null);
+  };
+
+  const toggleEmailMfa = async (enabled: boolean) => {
+    clearMessages();
+    setBusy(true);
+    try {
+      await mfaPost({ action: 'email', enabled, password: mfaPassword });
+      setMfaPassword('');
+      setNotice(enabled ? 'Email MFA enabled.' : 'Email MFA disabled.');
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const beginTotp = async () => {
+    clearMessages();
+    setBusy(true);
+    try {
+      const res = await mfaPost({ action: 'totp-begin', password: mfaPassword });
+      setMfaPassword('');
+      setTotpSetup(res.totp ?? null);
+      setTotpCode('');
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const confirmTotp = async () => {
+    clearMessages();
+    setBusy(true);
+    try {
+      const res = await mfaPost({ action: 'totp-confirm', code: totpCode });
+      setTotpSetup(null);
+      setTotpCode('');
+      setRecoveryCodes(res.recoveryCodes ?? null);
+      setNotice('Authenticator app enabled. Save your recovery codes.');
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const disableTotp = async () => {
+    clearMessages();
+    setBusy(true);
+    try {
+      await mfaPost({ action: 'totp-disable', password: mfaPassword });
+      setMfaPassword('');
+      setNotice('Authenticator app disabled.');
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const regenerateRecovery = async () => {
+    clearMessages();
+    setBusy(true);
+    try {
+      const res = await mfaPost({ action: 'recovery-regenerate', password: mfaPassword });
+      setMfaPassword('');
+      setRecoveryCodes(res.recoveryCodes ?? null);
+      setNotice('New recovery codes generated. Your previous codes no longer work.');
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (!me) {
     return <div className="card auth-wrap"><div className="info-box">Loading…</div></div>;
   }
 
   const sub = me.subscription;
+  const mfa = me.mfa;
 
   return (
     <div className="card">
       <h1>Account</h1>
       {error && <div className="error-box">{error}</div>}
+      {notice && <div className="info-box">{notice}</div>}
 
       <div className="row">
         <div className="field">
@@ -121,10 +225,120 @@ export default function AccountPage() {
             Admin console
           </Link>
         )}
+        <Link className="button secondary" href="/history">
+          Scan history
+        </Link>
         <Link className="button secondary" href="/">
           Back to scans
         </Link>
       </div>
+
+      <h2 style={{ marginTop: 32 }}>Two-factor authentication</h2>
+      <p className="text-muted">Add a second step to sign-in. Email codes work anywhere; an authenticator app is phishing-resistant.</p>
+
+      {!me.user.emailVerified && (
+        <div className="info-box">Verify your email address before enabling email MFA.</div>
+      )}
+
+      <div className="field">
+        <label>Email codes</label>
+        <p>
+          {mfa.emailEnabled ? <span className="pill active">Enabled</span> : <span className="pill info">Disabled</span>}
+        </p>
+      </div>
+
+      <div className="field">
+        <label>Authenticator app (TOTP)</label>
+        <p>
+          {mfa.totpEnabled ? <span className="pill active">Enabled</span> : <span className="pill info">Disabled</span>}
+          {mfa.totpEnabled && (
+            <span className="text-muted" style={{ marginLeft: 8 }}>
+              {mfa.recoveryCodesRemaining} recovery code{mfa.recoveryCodesRemaining === 1 ? '' : 's'} remaining
+            </span>
+          )}
+        </p>
+      </div>
+
+      <div className="field">
+        <label htmlFor="mfa-password">Confirm with your password</label>
+        <input
+          id="mfa-password"
+          type="password"
+          value={mfaPassword}
+          onChange={(e) => setMfaPassword(e.target.value)}
+          placeholder="Current password"
+          autoComplete="current-password"
+        />
+        <p className="hint">Required to enable, disable, or regenerate any MFA setting.</p>
+      </div>
+
+      <div className="actions">
+        {!mfa.emailEnabled ? (
+          <button className="button secondary" onClick={() => toggleEmailMfa(true)} disabled={busy || !me.user.emailVerified}>
+            Enable email codes
+          </button>
+        ) : (
+          <button className="button secondary" onClick={() => toggleEmailMfa(false)} disabled={busy}>
+            Disable email codes
+          </button>
+        )}
+        {!mfa.totpEnabled && !totpSetup && (
+          <button className="button secondary" onClick={beginTotp} disabled={busy}>
+            Set up authenticator app
+          </button>
+        )}
+        {mfa.totpEnabled && (
+          <button className="button secondary" onClick={disableTotp} disabled={busy}>
+            Disable authenticator app
+          </button>
+        )}
+        {mfa.totpEnabled && (
+          <button className="button secondary" onClick={regenerateRecovery} disabled={busy}>
+            Regenerate recovery codes
+          </button>
+        )}
+      </div>
+
+      {totpSetup && (
+        <div className="profile-description" style={{ marginTop: 16 }}>
+          <h3>Scan this code with your authenticator app</h3>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={totpSetup.qrDataUrl} alt="TOTP QR code" width={220} height={220} style={{ background: '#fff', padding: 8, borderRadius: 8 }} />
+          <p className="hint">Or enter this key manually:</p>
+          <code style={{ wordBreak: 'break-all' }}>{totpSetup.secret}</code>
+          <div className="field" style={{ marginTop: 12 }}>
+            <label htmlFor="totp-code">Enter the 6-digit code to confirm</label>
+            <input id="totp-code" type="text" inputMode="numeric" value={totpCode} onChange={(e) => setTotpCode(e.target.value)} autoComplete="one-time-code" />
+          </div>
+          <div className="actions">
+            <button className="button" onClick={confirmTotp} disabled={busy}>
+              Confirm
+            </button>
+            <button className="button secondary" onClick={() => setTotpSetup(null)} disabled={busy}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {recoveryCodes && (
+        <div className="profile-description" style={{ marginTop: 16 }}>
+          <h3>Recovery codes</h3>
+          <p className="hint">Save these somewhere safe. Each works once if you lose your authenticator. They are shown only now.</p>
+          <div className="summary-grid">
+            {recoveryCodes.map((c) => (
+              <span key={c} className="summary-pill" style={{ fontFamily: 'monospace' }}>
+                {c}
+              </span>
+            ))}
+          </div>
+          <div className="actions">
+            <button className="button secondary" onClick={() => setRecoveryCodes(null)}>
+              I&apos;ve saved them
+            </button>
+          </div>
+        </div>
+      )}
 
       {me.user.status === 'deletion_pending' && (
         <div className="info-box" style={{ marginTop: 16 }}>

@@ -8,6 +8,8 @@ import { errorJson } from '@/server/http';
 import { verifyCsrfOrOrigin } from '@/server/auth/csrf';
 import { canUseModule } from '@/server/entitlements';
 import { isUserVerified } from '@/server/users';
+import { recordScanQueued } from '@/server/scans';
+import { parseTarget } from '@/shared/targets';
 import { getWebConfig } from '@/shared/config';
 import type { ModuleId } from '@/shared/types';
 
@@ -53,6 +55,23 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       custom: parsed.data.custom,
       modules: parsed.data.modules,
     });
+    // Record the scan in long-term history (best-effort; never blocks a scan).
+    try {
+      const target = parseTarget(parsed.data.target);
+      recordScanQueued({
+        id: result.jobId,
+        userId: guard.value.user.id,
+        userEmail: guard.value.user.email,
+        targetRaw: parsed.data.target,
+        host: target.host,
+        path: target.path,
+        scheme: target.scheme,
+        profile: parsed.data.profile,
+        modules: parsed.data.modules ?? [],
+      });
+    } catch {
+      // ignore history write failures
+    }
     return NextResponse.json(result, { status: 201 });
   } catch (e) {
     if (e instanceof WorkerClientError) {

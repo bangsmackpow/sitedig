@@ -9,11 +9,20 @@ export const metadata: Metadata = {
   description:
     'Run authorized, detection-oriented reconnaissance scans against targets you own or have permission to test, and download polished PDF and Markdown reports.',
   robots: { index: false, follow: false },
+  icons: {
+    icon: [
+      { url: '/icon.svg', type: 'image/svg+xml' },
+      { url: '/favicon.ico' },
+    ],
+    shortcut: '/favicon.ico',
+    apple: '/apple-icon.png',
+  },
 };
 
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
+  themeColor: '#0f172a',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

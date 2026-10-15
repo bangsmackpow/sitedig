@@ -45,6 +45,8 @@ export interface PublicUser {
   emailVerified: boolean;
   premium: boolean;
   status: string;
+  mfaEmailEnabled: boolean;
+  totpEnabled: boolean;
 }
 
 export interface SubscriptionView {
@@ -54,8 +56,15 @@ export interface SubscriptionView {
   priceId: string | null;
 }
 
+export interface MfaView {
+  emailEnabled: boolean;
+  totpEnabled: boolean;
+  recoveryCodesRemaining: number;
+}
+
 export interface MePayload {
   user: PublicUser;
   subscription: SubscriptionView | null;
+  mfa: MfaView;
   deletionPending: boolean;
 }

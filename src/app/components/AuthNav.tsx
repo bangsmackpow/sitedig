@@ -52,6 +52,9 @@ export default function AuthNav() {
             Admin
           </Link>
         )}
+        <Link className="link" href="/history">
+          History
+        </Link>
         <Link className="link" href="/account">
           Account
         </Link>

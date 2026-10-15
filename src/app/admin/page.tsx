@@ -140,7 +140,7 @@ export default function AdminPage() {
     <div className="card">
       <h1>Admin console</h1>
       <p className="text-muted">
-        Create users, manage status, and grant or revoke Premium. <Link className="link" href="/">Back to scans</Link>
+        Create users, manage status, and grant or revoke Premium. <Link className="link" href="/admin/scans">Scan analytics</Link> · <Link className="link" href="/">Back to scans</Link>
       </p>
       {error && <div className="error-box">{error}</div>}
       {notice && <div className="info-box">{notice}</div>}

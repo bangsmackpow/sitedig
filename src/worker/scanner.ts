@@ -27,12 +27,14 @@ import type {
   VulnerabilityFinding,
   WhoisInfo,
   CveContextFinding,
+  FindingCounts,
+  ScanEventPayload,
 } from '../shared/types';
 import { assertNoRebinding, defaultResolver, resolveAndValidate, type DnsResolver, type ResolveResult } from './dns';
 import { lookupEmailPosture } from './email-posture';
 import { buildFindings } from './findings';
 import { httpCheck as defaultHttpCheck, tlsCheck as defaultTlsCheck } from './http';
-import { formatHostForUrl } from '../shared/net';
+import { formatHostForUrl, isIpv4, isIpv6 } from '../shared/net';
 import type { HttpObservation, TlsObservation } from '../shared/types';
 import {
   parseNmapGrepable,
@@ -225,7 +227,13 @@ export class ScannerService {
       (job) => this.processJob(job, runnerDeps),
       {
         onStart: (job) => this.log.info('job_started', { jobId: job.id, profile: job.profile }),
-        onFinish: (job) => this.log.info('job_finished', { jobId: job.id, status: job.status }),
+        onFinish: (job) => {
+          this.log.info('job_finished', { jobId: job.id, status: job.status });
+          // Persist scan history (best-effort, fire-and-forget) then drop the
+          // cached resolution so the map does not grow without bound.
+          void this.notifyScanEvent(job);
+          this.validatedTargets.delete(job.id);
+        },
         onReject: (job, reason) => this.log.warn('job_rejected', { jobId: job.id, reason }),
       },
     );
@@ -247,6 +255,81 @@ export class ScannerService {
   stop(): void {
     if (this.ttlTimer) clearInterval(this.ttlTimer);
     this.log.info('scanner_stopping', {});
+  }
+
+  /** Assemble the compact, report-free summary persisted as scan history. */
+  private buildScanEvent(job: Job): ScanEventPayload {
+    const resolved = this.validatedTargets.get(job.id);
+    const ips = resolved?.addresses ?? [];
+    const ipVersion: ScanEventPayload['ipVersion'] =
+      ips.length === 0 ? null : ips.every(isIpv4) ? 'ipv4' : ips.every(isIpv6) ? 'ipv6' : 'mixed';
+
+    const findings: FindingCounts = { critical: 0, high: 0, medium: 0, low: 0, informational: 0 };
+    if (job.report) {
+      for (const f of job.report.findings) findings[f.severity] += 1;
+    }
+    const tools = (job.report?.toolResults ?? []).map((r) => ({
+      tool: r.tool,
+      ok: r.ok,
+      timedOut: r.timedOut,
+      exitCode: r.exitCode,
+      durationMs: r.durationMs,
+    }));
+    const { startedAt, finishedAt } = job;
+    const durationMs = startedAt && finishedAt ? Math.max(0, new Date(finishedAt).getTime() - new Date(startedAt).getTime()) : null;
+    const status: ScanEventPayload['status'] = job.status === 'completed' ? 'completed' : job.status === 'cancelled' ? 'cancelled' : 'failed';
+
+    return {
+      scanId: job.id,
+      status,
+      targetRaw: job.target.raw,
+      host: job.target.host,
+      path: job.target.path,
+      scheme: job.target.scheme,
+      profile: job.profile,
+      portScope: job.report?.meta.portScope ?? null,
+      modules: job.modules,
+      resolvedIps: ips,
+      ipVersion,
+      startedAt,
+      finishedAt,
+      durationMs,
+      portCount: job.report?.ports.length ?? 0,
+      findings,
+      tools,
+      toolOk: tools.filter((t) => t.ok).length,
+      toolTotal: tools.length,
+      error: job.error,
+    };
+  }
+
+  /** POST a completion summary to the web service (best-effort, bounded retries). */
+  private async notifyScanEvent(job: Job): Promise<void> {
+    const base = this.config.webBaseUrl;
+    if (!base) return;
+    const payload = this.buildScanEvent(job);
+    const headers: Record<string, string> = { 'content-type': 'application/json' };
+    if (this.config.serviceToken) headers.authorization = `Bearer ${this.config.serviceToken}`;
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const res = await fetch(`${base}/api/internal/scan-events`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(5000),
+        });
+        if (res.ok) return;
+        if (res.status >= 400 && res.status < 500) {
+          this.log.warn('scan_event_rejected', { jobId: job.id, status: res.status });
+          return;
+        }
+      } catch {
+        // transient; fall through to retry
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+    }
+    this.log.warn('scan_event_failed', { jobId: job.id });
   }
 
   get queueStats() {

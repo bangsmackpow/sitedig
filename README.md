@@ -20,7 +20,8 @@ It is **not** a vulnerability scanner. It never runs exploitation, brute force, 
 
 ## Features
 
-- **Accounts & access control** — email/password accounts with email verification and password reset, DB-backed sessions, and an admin console. Two deployment modes: `hosted` (public multi-tenant SaaS with Stripe billing) and `self-hosted` (single-org install with an env-bootstrapped first admin).
+- **Accounts & access control** — email/password accounts with email verification and password reset, DB-backed sessions, an admin console, and **multi-factor authentication** (email one-time codes via Resend, plus TOTP authenticator apps with single-use recovery codes). Two deployment modes: `hosted` (public multi-tenant SaaS with Stripe billing) and `self-hosted` (single-org install with an env-bootstrapped first admin).
+- **Email delivery** — provider-selectable outbound email via **Resend** (REST, no SDK) or SMTP, used for verification, password reset, MFA codes, and the daily admin digest.
 - **Four scan profiles** — Quick, Standard, Deep, and a bounded Custom profile, each with plain-language scope, tool, noise, and duration descriptions shown before you scan.
 - **Strict target safety** — RFC1918, loopback, link-local, multicast, reserved, documentation, IPv6 ULA, and cloud-metadata addresses are rejected. DNS is re-validated before *every* tool, DNS rebinding is detected, and every HTTP redirect destination is safety-checked.
 - **Authorization gate** — a consent modal with a required checkbox must be acknowledged for **every** scan.
@@ -29,7 +30,9 @@ It is **not** a vulnerability scanner. It never runs exploitation, brute force, 
 - **Hard limits** — configurable concurrency, queue depth, per-tool output caps, and a scan duration cap (default 10 min, max 15 min) enforced with process-group cleanup.
 - **Entitlement-gated Premium** — paid add-on modules require an active Premium entitlement, granted by Stripe subscriptions (hosted) or by admins (self-hosted), and are gated again server-side before jobs reach the worker.
 - **Server-side logging** — verbose, structured logs to Docker/Portainer; logs are never exposed in the UI or reports.
-- **SQLite persistence** — identities, sessions, entitlements, and billing state only. No scan history or report storage.
+- **Scan history & analytics** — the worker reports a compact, report-free summary (target, resolved IPs, profile, duration, finding counts, per-tool timings) back to the web, which persists it. Users get a personal scan history with one-click re-run; admins get an analytics dashboard (volume, success rate, avg/p95 duration, top targets, module usage, per-tool timing) with CSV export. Reports themselves are never stored.
+- **Daily admin digest** — an in-process scheduler emails admins a daily summary of new signups and scan activity (with a "Send digest now" button in the console). A retention window (`SCAN_HISTORY_RETENTION_DAYS`) sweeps old history automatically.
+- **SQLite persistence** — identities, sessions, entitlements, billing state, MFA state, and scan-history metadata. Report artifacts are never persisted.
 - **One image, two roles** — Compose runs the same GHCR image as `web` and `worker` services.
 
 ## Architecture
@@ -50,9 +53,9 @@ Browser ── HTTPS ──> Nginx Proxy Manager ──> web (Next.js, port 3000
 ```
 
 - **web** — renders the UI, validates input with Zod, enforces consent, proxies jobs/status/downloads. Never executes scanner commands.
-- **worker** — owns the in-memory queue, re-validates targets, executes approved commands as argv arrays, enforces timeouts, and renders reports.
+- **worker** — owns the in-memory queue, re-validates targets, executes approved commands as argv arrays, enforces timeouts, and renders reports. On completion it posts a compact, report-free summary (resolved IPs, durations, finding counts, per-tool timings) to the web so scan history can be recorded.
 
-The worker API is only reachable on the internal Docker network and is protected by a shared bearer token.
+The worker API is only reachable on the internal Docker network and is protected by a shared bearer token. The scan-history callback (`POST /api/internal/scan-events`) is authenticated with the same token.
 
 ## Quick start (local development)
 
@@ -106,11 +109,18 @@ services:
       SMTP_USERNAME: ${SMTP_USERNAME:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_FROM: ${SMTP_FROM:-}
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
       STRIPE_PRICE_ID: ${STRIPE_PRICE_ID:-}
       STRIPE_PORTAL_RETURN_URL: ${STRIPE_PORTAL_RETURN_URL:-}
       ENABLED_MODULES: ${ENABLED_MODULES:-}
+      SCAN_HISTORY_RETENTION_DAYS: ${SCAN_HISTORY_RETENTION_DAYS:-365}
+      ADMIN_DIGEST_ENABLED: ${ADMIN_DIGEST_ENABLED:-false}
+      ADMIN_DIGEST_HOUR: ${ADMIN_DIGEST_HOUR:-8}
+      ADMIN_DIGEST_RECIPIENTS: ${ADMIN_DIGEST_RECIPIENTS:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
       - sitedig-data:/data
@@ -131,6 +141,7 @@ services:
     command: ["node", "dist-worker/worker/index.js"]
     environment:
       SCAN_SERVICE_TOKEN: ${SCAN_SERVICE_TOKEN}
+      WEB_BASE_URL: ${WEB_BASE_URL:-http://web:3000}
       MAX_CONCURRENT_SCANS: ${MAX_CONCURRENT_SCANS:-1}
       MAX_QUEUE: ${MAX_QUEUE:-3}
       SCAN_TIMEOUT_MS: ${SCAN_TIMEOUT_MS:-600000}
@@ -210,7 +221,11 @@ docker compose pull && docker compose up -d
 | `DATABASE_PATH` | web | `/data/sitedig.sqlite` | SQLite file for accounts, sessions, entitlements, billing |
 | `APP_BASE_URL` | web | `http://localhost:3000` | Public origin used in emails, billing redirects, and the CSRF origin check. **Set this to your public domain** (e.g. `https://sitedig.example.com`) — behind a reverse proxy the request `Host` header is also accepted for login |
 | `INITIAL_ADMIN_EMAIL` / `INITIAL_ADMIN_PASSWORD` | web | *(empty)* | Bootstrap the first admin (self-hosted). Used only when no admin exists |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM` | web | *(empty)* | Email delivery for verification / password reset. Required in `hosted` mode |
+| `EMAIL_PROVIDER`, `RESEND_API_KEY`, `EMAIL_FROM` | web | *(empty)* | Outbound email. `resend` (default when `RESEND_API_KEY` is set) or `smtp`. Used for verification, password reset, MFA codes, and the digest. Required in `hosted` mode |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM` | web | *(empty)* | SMTP fallback when `EMAIL_PROVIDER=smtp` |
+| `WEB_BASE_URL` | worker | *(empty)* | Web base URL the worker posts scan-history events to (e.g. `http://web:3000`). Empty disables history callbacks |
+| `SCAN_HISTORY_RETENTION_DAYS` | web | `365` | Days of scan-history metadata to keep (`0` disables sweeping) |
+| `ADMIN_DIGEST_ENABLED` / `ADMIN_DIGEST_HOUR` / `ADMIN_DIGEST_RECIPIENTS` | web | `false` / `8` / *(empty)* | Daily admin digest of signups + scan activity (UTC hour; empty recipients = all admins) |
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_ID`, `STRIPE_PORTAL_RETURN_URL` | web | *(empty)* | Stripe billing (hosted mode). `portal_return_url` optional, defaults to `/account` |
 | `ENABLED_MODULES` | both | *(empty)* | Comma-separated paid module ids to unlock (deployment ceiling) |
 | `WPSCAN_API_TOKEN` | worker | *(empty)* | WPScan API token for plugin/theme vulnerability data |
@@ -270,6 +285,27 @@ curl -s https://your-domain/api/health | jq
 - **Module listed by both web and worker but still greyed out** → the Premium gate: the user is not an admin, has no active Stripe subscription, and has no per-module entitlement.
 
 The worker also logs `enabledModules` (and the raw `ENABLED_MODULES` value) at startup, which is visible in Docker/Portainer logs.
+
+## Multi-factor authentication
+
+Users can enable MFA from **Account**:
+
+- **Email codes** — a 6-digit one-time code emailed after the password step (requires a verified email and configured email delivery).
+- **Authenticator app (TOTP)** — scan the QR (or enter the key) in any TOTP app, confirm a code, and save the generated single-use **recovery codes**.
+
+When MFA is enabled, a correct password does **not** create a session — the login flow returns a short-lived challenge and only issues a session after a valid code (or recovery code). Challenges expire in 10 minutes and lock out after 5 failed attempts; email codes can be re-sent (rate-limited). Enabling, disabling, or regenerating any MFA setting requires the current password.
+
+## Scan history & analytics
+
+Every scan records a compact, report-free summary (target, resolved IPs, profile, duration, finding counts, per-tool timings). The worker posts it to the web on completion; the web persists it in SQLite.
+
+- **Users** see their own history at `/history` with one-click re-run (reports are regenerated on demand — nothing is archived).
+- **Admins** see an analytics dashboard at `/admin/scans`: scans/day, success rate, avg + p95 duration, top targets, module usage, per-tool timing, and CSV export. Filters cover date range, host, user, profile, and status.
+- History is swept automatically past `SCAN_HISTORY_RETENTION_DAYS` and removed when an account is deleted.
+
+## Admin digest
+
+With `ADMIN_DIGEST_ENABLED=true`, the web sends a daily email (after `ADMIN_DIGEST_HOUR` UTC) summarizing new signups, scans run, failures, durations, findings, top targets, and module usage. Recipients default to all active admins, or set `ADMIN_DIGEST_RECIPIENTS`. An admin can also trigger it immediately from `/admin/scans` (**Send digest now**). The scheduler is a single in-process timer guarded by a last-run date; it is designed for a single web instance.
 
 ## Report contents
 
@@ -333,7 +369,7 @@ Test scanners are Node stubs under `tests/fixtures/stub-bin/` — the test suite
 
 ## Roadmap (explicitly deferred)
 
-Persistent scan history, Redis-backed queues, CIDR scanning, scan comparison/diffs, custom branding, UDP/all-port scanning, LLM-personalized remediation text, and additional external vulnerability APIs.
+Redis-backed queues, CIDR scanning, scheduled/recurring scans with change detection and alerting, scan comparison/diffs, custom branding and scheduled client report delivery, UDP/all-port scanning, LLM-personalized remediation text, and additional external vulnerability APIs.
 
 ## License
 

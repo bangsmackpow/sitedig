@@ -31,6 +31,13 @@ export interface WebConfig {
     from: string;
     configured: boolean;
   };
+  /** Outbound email delivery (Resend or SMTP), used for verification, MFA codes, and the admin digest. */
+  email: {
+    provider: 'resend' | 'smtp';
+    from: string;
+    resendApiKey: string;
+    configured: boolean;
+  };
   stripe: {
     secretKey: string;
     webhookSecret: string;
@@ -40,11 +47,21 @@ export interface WebConfig {
   };
   /** Deployment-level availability ceiling for paid modules (env ENABLED_MODULES). */
   enabledModules: Set<ModuleId>;
+  /** Daily admin digest (new signups + scan activity). */
+  digest: {
+    enabled: boolean;
+    hourUtc: number;
+    recipients: string[];
+  };
+  /** Days of scan history to retain (0 disables sweeping). */
+  scanHistoryRetentionDays: number;
 }
 
 export interface WorkerConfig {
   port: number;
   serviceToken: string;
+  /** Base URL of the web service, used to POST scan-history events (optional). */
+  webBaseUrl: string;
   maxConcurrentScans: number;
   maxQueue: number;
   scanTimeoutMs: number;
@@ -87,6 +104,13 @@ export function getWebConfig(env: NodeJS.ProcessEnv = process.env): WebConfig {
   const smtpFrom = env.SMTP_FROM ?? '';
   const stripeKey = env.STRIPE_SECRET_KEY ?? '';
   const stripeWebhook = env.STRIPE_WEBHOOK_SECRET ?? '';
+  const resendApiKey = env.RESEND_API_KEY ?? '';
+  const emailFrom = env.EMAIL_FROM ?? smtpFrom;
+  const providerRaw = (env.EMAIL_PROVIDER ?? '').trim().toLowerCase();
+  // Default to Resend when a key is present, otherwise SMTP. An explicit
+  // EMAIL_PROVIDER always wins.
+  const emailProvider: 'resend' | 'smtp' = providerRaw === 'resend' || (providerRaw === '' && resendApiKey) ? 'resend' : 'smtp';
+  const emailConfigured = emailProvider === 'resend' ? Boolean(resendApiKey && emailFrom) : Boolean(smtpHost && emailFrom);
   return {
     port: intEnv(env, 'WEB_PORT', DEFAULT_WEB_PORT),
     workerUrl: (env.WORKER_URL ?? 'http://localhost:8081').replace(/\/+$/, ''),
@@ -106,6 +130,12 @@ export function getWebConfig(env: NodeJS.ProcessEnv = process.env): WebConfig {
       from: smtpFrom,
       configured: Boolean(smtpHost && smtpFrom),
     },
+    email: {
+      provider: emailProvider,
+      from: emailFrom,
+      resendApiKey,
+      configured: emailConfigured,
+    },
     stripe: {
       secretKey: stripeKey,
       webhookSecret: stripeWebhook,
@@ -114,6 +144,15 @@ export function getWebConfig(env: NodeJS.ProcessEnv = process.env): WebConfig {
       configured: Boolean(stripeKey && stripeWebhook && env.STRIPE_PRICE_ID),
     },
     enabledModules: parseEnabledModules(env as Record<string, string | undefined>),
+    digest: {
+      enabled: boolEnv(env, 'ADMIN_DIGEST_ENABLED', false),
+      hourUtc: Math.min(23, Math.max(0, intEnv(env, 'ADMIN_DIGEST_HOUR', 8))),
+      recipients: (env.ADMIN_DIGEST_RECIPIENTS ?? '')
+        .split(',')
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean),
+    },
+    scanHistoryRetentionDays: intEnv(env, 'SCAN_HISTORY_RETENTION_DAYS', 365),
   };
 }
 
@@ -123,8 +162,8 @@ export function validateWebConfig(config: WebConfig): void {
     if (!config.stripe.configured) {
       throw new Error('Hosted mode requires STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, and STRIPE_PRICE_ID.');
     }
-    if (!config.smtp.configured) {
-      throw new Error('Hosted mode requires SMTP_HOST, SMTP_PORT, and SMTP_FROM.');
+    if (!config.email.configured) {
+      throw new Error('Hosted mode requires email delivery: set RESEND_API_KEY + EMAIL_FROM, or SMTP_HOST + SMTP_FROM.');
     }
     if (!config.appBaseUrl || config.appBaseUrl === 'http://localhost:3000') {
       throw new Error('Hosted mode requires APP_BASE_URL to be set to the public origin.');
@@ -152,6 +191,7 @@ export function getWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerCon
   return {
     port: intEnv(env, 'WORKER_PORT', DEFAULT_WORKER_PORT),
     serviceToken: env.SCAN_SERVICE_TOKEN ?? '',
+    webBaseUrl: (env.WEB_BASE_URL ?? '').replace(/\/+$/, ''),
     maxConcurrentScans: intEnv(env, 'MAX_CONCURRENT_SCANS', DEFAULT_MAX_CONCURRENT_SCANS),
     maxQueue: intEnv(env, 'MAX_QUEUE', DEFAULT_MAX_QUEUE),
     scanTimeoutMs,

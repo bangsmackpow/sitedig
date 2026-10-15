@@ -315,3 +315,48 @@ export interface PublicJobView {
   hasArtifacts: boolean;
   summaryCounts: { critical: number; high: number; medium: number; low: number; informational: number } | null;
 }
+
+/** Severity roll-up persisted with scan history. */
+export interface FindingCounts {
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+  informational: number;
+}
+
+/** Compact per-tool timing record persisted for scan analytics. */
+export interface ScanToolTiming {
+  tool: string;
+  ok: boolean;
+  timedOut: boolean;
+  exitCode: number | null;
+  durationMs: number;
+}
+
+/**
+ * Completion summary the worker posts to the web so long-term scan history can
+ * be recorded. Reports themselves are never sent or stored — only metadata.
+ */
+export interface ScanEventPayload {
+  scanId: string;
+  status: 'completed' | 'failed' | 'cancelled';
+  targetRaw: string;
+  host: string;
+  path: string;
+  scheme: string;
+  profile: string;
+  portScope: string | null;
+  modules: string[];
+  resolvedIps: string[];
+  ipVersion: 'ipv4' | 'ipv6' | 'mixed' | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  durationMs: number | null;
+  portCount: number;
+  findings: FindingCounts;
+  tools: ScanToolTiming[];
+  toolOk: number;
+  toolTotal: number;
+  error: string | null;
+}

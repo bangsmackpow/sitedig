@@ -257,14 +257,14 @@ describe('account deletion', () => {
 });
 
 describe('mailer', () => {
-  it('raises a clear error when SMTP is not configured', async () => {
+  it('raises a clear error when email delivery is not configured', async () => {
     const savedHost = process.env.SMTP_HOST;
     const savedFrom = process.env.SMTP_FROM;
     delete process.env.SMTP_HOST;
     delete process.env.SMTP_FROM;
     try {
       const mailer = createMailer();
-      await expect(mailer.send({ to: 'x@example.com', subject: 'hi', text: 'hi' })).rejects.toThrow('SMTP is not configured');
+      await expect(mailer.send({ to: 'x@example.com', subject: 'hi', text: 'hi' })).rejects.toThrow('Email delivery is not configured');
     } finally {
       process.env.SMTP_HOST = savedHost;
       process.env.SMTP_FROM = savedFrom;

@@ -77,6 +77,12 @@ export default function ScanApp() {
       .catch(() => setModules([]));
   }, []);
 
+  // Prefill the target when arriving from scan history ("Re-run").
+  useEffect(() => {
+    const t = new URLSearchParams(window.location.search).get('target');
+    if (t) setTarget(t);
+  }, []);
+
   const isBusy = job !== null && (job.status === 'queued' || job.status === 'running');
 
   const stopPolling = useCallback(() => {

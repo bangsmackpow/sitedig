@@ -9,6 +9,9 @@ export interface UserRow {
   role: 'admin' | 'user';
   status: 'active' | 'disabled' | 'deletion_pending';
   stripe_customer_id: string | null;
+  mfa_email_enabled: number;
+  totp_secret: string | null;
+  totp_enabled_at: string | null;
   created_at: string;
   updated_at: string;
   deleted_at: string | null;

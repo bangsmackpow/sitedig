@@ -21,6 +21,9 @@ export async function GET(): Promise<NextResponse> {
     workerUrl: cfg.workerUrl,
     enabledModules: [...cfg.enabledModules].sort(),
     rawEnabledModules: process.env.ENABLED_MODULES ?? '',
+    email: { provider: cfg.email.provider, configured: cfg.email.configured },
+    digest: { enabled: cfg.digest.enabled, hourUtc: cfg.digest.hourUtc, recipients: cfg.digest.recipients.length },
+    scanHistoryRetentionDays: cfg.scanHistoryRetentionDays,
     worker,
   });
 }
