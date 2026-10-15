@@ -72,7 +72,7 @@ npm run dev
 
 Set `WORKER_URL=http://localhost:8081` and (optionally) `SCAN_SERVICE_TOKEN` in your environment. On first web startup, set `INITIAL_ADMIN_EMAIL`/`INITIAL_ADMIN_PASSWORD` to bootstrap the first admin account (self-hosted mode). Running scans now requires signing in. The web service uses a SQLite database (default `./data/sitedig.sqlite` via `DATABASE_PATH`) — the directory is created automatically.
 
-> In `self-hosted` mode without SMTP, public registration is disabled; accounts are created by an admin (or via the first-admin bootstrap). Registration becomes available once SMTP is configured.
+> In `self-hosted` mode without email delivery configured (Resend or SMTP), public registration is disabled; accounts are created by an admin (or via the first-admin bootstrap). Registration becomes available once email delivery is configured.
 
 > Local Windows/macOS dev without `nmap`/`whatweb`/`wpscan` will still boot; scanner steps fail gracefully and are recorded as tool errors in the report. The Docker image includes all tools.
 
@@ -346,7 +346,7 @@ Notes:
 ```bash
 npm run lint           # next lint (web + shared)
 npm run typecheck      # tsc (web) + tsc (worker)
-npm test               # vitest — 138 tests, including stub-tool integration tests
+npm test               # vitest — 161 tests, including stub-tool integration tests
 npm run build          # worker compile + Next.js production build
 npm run validate:compose
 ```
