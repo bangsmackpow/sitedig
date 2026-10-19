@@ -517,9 +517,76 @@ export interface ScanToolTiming {
   durationMs: number;
 }
 
+/** Metadata-only finding summary used for scan-to-scan change detection. */
+export interface ScanFindingSummary {
+  fingerprint: string;
+  title: string;
+  severity: Finding['severity'];
+  category: Finding['category'];
+  affected: string | null;
+  sourceTools: ToolName[];
+}
+
+export type ScheduleFrequency = 'daily' | 'weekly';
+export type ScheduleAlertThreshold = 'off' | 'high' | 'medium' | 'all';
+
+export interface ScheduledScan {
+  id: number;
+  userId: number;
+  userEmail: string | null;
+  target: string;
+  host: string;
+  path: string;
+  scheme: 'http' | 'https';
+  profile: ScanProfile;
+  custom: CustomScanOptions | null;
+  modules: ModuleId[];
+  frequency: ScheduleFrequency;
+  hourUtc: number;
+  minuteUtc: number;
+  dayOfWeek: number | null;
+  alertMinSeverity: ScheduleAlertThreshold;
+  alertOnFailure: boolean;
+  enabled: boolean;
+  consentAt: string;
+  nextRunAt: string;
+  lastAttemptAt: string | null;
+  lastRunAt: string | null;
+  lastScanId: string | null;
+  lastAlertScanId: string | null;
+  lastAlertAt: string | null;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ScanRisk {
+  score: number;
+  grade: 'A' | 'B' | 'C' | 'D' | 'F';
+}
+
+export interface FindingSeverityChange {
+  finding: ScanFindingSummary;
+  from: Finding['severity'];
+  to: Finding['severity'];
+}
+
+export interface ScanDiff {
+  currentScanId: string;
+  previousScanId: string | null;
+  newFindings: ScanFindingSummary[];
+  resolvedFindings: ScanFindingSummary[];
+  notAssessed: ScanFindingSummary[];
+  severityChanges: FindingSeverityChange[];
+  unchangedCount: number;
+  risk: ScanRisk;
+  previousRisk: ScanRisk | null;
+  riskDelta: number | null;
+}
+
 /**
  * Completion summary the worker posts to the web so long-term scan history can
- * be recorded. Reports themselves are never sent or stored — only metadata.
+ * be recorded. Reports themselves are never sent or stored - only metadata.
  */
 export interface ScanEventPayload {
   scanId: string;
@@ -538,6 +605,8 @@ export interface ScanEventPayload {
   durationMs: number | null;
   portCount: number;
   findings: FindingCounts;
+  /** Metadata-only summaries used for diffs; omitted by older workers. */
+  findingsDetail?: ScanFindingSummary[];
   tools: ScanToolTiming[];
   toolOk: number;
   toolTotal: number;

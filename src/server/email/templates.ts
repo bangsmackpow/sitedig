@@ -31,6 +31,10 @@ function wrap(title: string, bodyHtml: string): string {
 </html>`;
 }
 
+function esc(value: string): string {
+  return value.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] ?? c);
+}
+
 function button(href: string, label: string): string {
   return `<p style="margin:20px 0;"><a href="${href}" style="display:inline-block;background:${ACCENT};color:#0b1220;text-decoration:none;font-weight:700;padding:10px 18px;border-radius:8px;">${label}</a></p>`;
 }
@@ -142,4 +146,65 @@ export function digestEmail(data: DigestEmailData): RenderedEmail {
   ].join('\n');
 
   return { subject: `${APP_NAME} daily digest — ${data.date}`, text, html: wrap('Daily digest', bodyHtml) };
+}
+
+export interface ScheduledScanAlertData {
+  kind: 'findings' | 'failure';
+  target: string;
+  scanId: string;
+  risk: { score: number; grade: string };
+  previousRisk: { score: number; grade: string } | null;
+  newFindings: Array<{ title: string; severity: string; affected: string | null }>;
+  resolvedCount: number;
+  notAssessedCount: number;
+  severityChanges: number;
+  error: string | null;
+  scanUrl: string;
+  schedulesUrl: string;
+}
+
+export function scheduledScanAlertEmail(data: ScheduledScanAlertData): RenderedEmail {
+  const delta = data.previousRisk ? data.risk.score - data.previousRisk.score : null;
+  const deltaLabel = delta === null ? 'first run' : `${delta >= 0 ? '+' : ''}${delta} points`;
+  const targetLabel = data.target.replace(/[\r\n]/g, ' ');
+  const changeCount = data.newFindings.length || data.severityChanges;
+  const subject =
+    data.kind === 'failure'
+      ? `${APP_NAME}: scheduled scan failed for ${targetLabel}`
+      : `${APP_NAME}: ${changeCount} new or changed finding(s) on ${targetLabel}`;
+
+  const findingRows = data.newFindings.slice(0, 10).map((f) => [
+    f.severity.toUpperCase(),
+    esc(f.title),
+    esc(f.affected ?? 'n/a'),
+  ]);
+
+  const bodyHtml = data.kind === 'failure'
+    ? `<p style="color:#94a3b8;margin:0 0 8px;">The scheduled scan for <strong>${esc(data.target)}</strong> did not complete.</p>
+       <p style="color:#fca5a5;">${esc(data.error ?? 'Unknown scan error.')}</p>
+       ${button(data.schedulesUrl, 'Review schedules')}`
+    : `<p style="color:#94a3b8;margin:0 0 8px;">Scheduled scan completed for <strong>${esc(data.target)}</strong>.</p>
+       <p>Risk score: <strong>${data.risk.score}/100 (${data.risk.grade})</strong>${data.previousRisk ? ` (${deltaLabel} vs ${data.previousRisk.score})` : ' (first run)'}</p>
+       <p>New: <strong>${data.newFindings.length}</strong> | Resolved: ${data.resolvedCount} | Severity changes: ${data.severityChanges}${data.notAssessedCount > 0 ? ` | Not assessed: ${data.notAssessedCount}` : ''}</p>
+       <h2 style="font-size:15px;margin:16px 0 4px;">New findings</h2>
+       ${table(['Severity', 'Finding', 'Affected'], findingRows)}
+       ${button(data.scanUrl, 'View report')}
+       <p style="color:#94a3b8;font-size:12px;">Reports are available for a limited time. Review or download the report promptly.</p>`;
+
+  const text = data.kind === 'failure'
+    ? [
+        `${APP_NAME}: scheduled scan failed for ${data.target}`,
+        data.error ?? 'Unknown scan error.',
+        `Schedules: ${data.schedulesUrl}`,
+      ].join('\n')
+    : [
+        `${APP_NAME}: ${changeCount} new or changed finding(s) on ${data.target}`,
+        `Risk: ${data.risk.score}/100 (${data.risk.grade})${data.previousRisk ? `, ${deltaLabel} vs ${data.previousRisk.score}` : ''}`,
+        `Resolved: ${data.resolvedCount}; severity changes: ${data.severityChanges}; not assessed: ${data.notAssessedCount}`,
+        ...data.newFindings.slice(0, 10).map((f) => `- [${f.severity}] ${f.title}${f.affected ? ` (${f.affected})` : ''}`),
+        `Report: ${data.scanUrl}`,
+        `Schedules: ${data.schedulesUrl}`,
+      ].join('\n');
+
+  return { subject, text, html: wrap(data.kind === 'failure' ? 'Scheduled scan failed' : 'Scheduled scan changes', bodyHtml) };
 }

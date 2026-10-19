@@ -34,7 +34,7 @@ Run `npm run lint`, `npm run typecheck`, and `npm test` before declaring work co
 - Validate all external input with **Zod** (`src/shared/schemas.ts`, route handlers).
 - Web routes: guard with `guardUser`/`guardAdmin` (`src/server/http.ts`); mutating requests call `verifyCsrfOrOrigin` (`src/server/auth/csrf.ts`).
 - DB changes are **additive migrations** appended to the `MIGRATIONS` array in `src/server/db.ts` (bump `version`). Never edit a shipped migration.
-- Reports are never stored. Scan history persists metadata + finding counts only.
+- Reports are never stored. Scan history persists metadata + finding counts, plus finding fingerprint/title/severity/category/affected/source-tool metadata for change detection. Never store evidence, descriptions, remediation text, or full reports.
 - Do not add code comments unless they explain non-obvious intent.
 
 ## Subsystems added recently
@@ -45,7 +45,8 @@ Run `npm run lint`, `npm run typecheck`, and `npm test` before declaring work co
 - **Digest** (`src/server/digest.ts`, `src/instrumentation.ts`): hourly in-process tick sends the daily admin digest and sweeps scan history.
 - **Report viewer** (`src/app/scan/[id]/page.tsx`, `GET /api/scan/[id]/report`): renders the worker's in-memory `ReportModel` while the artifact TTL is active. Ownership is checked against the `scans` table; reports are still never persisted.
 - **Trust modules** (`web-trust`, `domain-hardening`, `infra-intel`): in-process checks in `src/worker/` wired through `expandModules` in `src/shared/profiles.ts`. New outbound HTTP must use `src/worker/safe-fetch.ts` (per-hop DNS validation, redirect caps, body caps).
+- **Recurring scans** (`src/server/schedules.ts`, `src/server/scheduler.ts`, `src/server/scan-diffs.ts`): Premium-only daily/weekly schedules dispatched on a 5-minute web tick. `scan_findings` stores fingerprint/title/severity/category/affected/source-tools metadata only; never evidence or full reports. Alerts default to new high/critical findings.
 
 ## Environment
 
-`.env.example` is the authoritative list. New vars: `EMAIL_PROVIDER`, `RESEND_API_KEY`, `EMAIL_FROM`, `WEB_BASE_URL` (worker), `SCAN_HISTORY_RETENTION_DAYS`, `ADMIN_DIGEST_ENABLED`, `ADMIN_DIGEST_HOUR`, `ADMIN_DIGEST_RECIPIENTS`, `DOH_ENDPOINT`, `IP_INTEL_ENDPOINT`. Keep `docker-compose.yml`, the README config table, and `.env.example` in sync when adding config.
+`.env.example` is the authoritative list. New vars: `EMAIL_PROVIDER`, `RESEND_API_KEY`, `EMAIL_FROM`, `WEB_BASE_URL` (worker), `SCAN_HISTORY_RETENTION_DAYS`, `MAX_SCHEDULES_PER_USER`, `ADMIN_DIGEST_ENABLED`, `ADMIN_DIGEST_HOUR`, `ADMIN_DIGEST_RECIPIENTS`, `DOH_ENDPOINT`, `IP_INTEL_ENDPOINT`. Keep `docker-compose.yml`, the README config table, and `.env.example` in sync when adding config.

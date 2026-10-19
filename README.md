@@ -32,6 +32,7 @@ It is **not** a vulnerability scanner. It never runs exploitation, brute force, 
 - **Server-side logging** — verbose, structured logs to Docker/Portainer; logs are never exposed in the UI or reports.
 - **Scan history & analytics** — the worker reports a compact, report-free summary (target, resolved IPs, profile, duration, finding counts, per-tool timings) back to the web, which persists it. Users get a personal scan history with one-click re-run; admins get an analytics dashboard (volume, success rate, avg/p95 duration, top targets, module usage, per-tool timing) with CSV export. Reports themselves are never stored.
 - **Daily admin digest** — an in-process scheduler emails admins a daily summary of new signups and scan activity (with a "Send digest now" button in the console). A retention window (`SCAN_HISTORY_RETENTION_DAYS`) sweeps old history automatically.
+- **Recurring scans & change detection** - Premium users can schedule daily or weekly authorized scans, compare each run with the previous result, track new/resolved/not-assessed findings and a derived risk score, and receive email alerts for new high-impact findings or failures. Finding fingerprints/titles are stored as metadata; full reports and evidence are never persisted.
 - **SQLite persistence** — identities, sessions, entitlements, billing state, MFA state, and scan-history metadata. Report artifacts are never persisted.
 - **One image, two roles** — Compose runs the same GHCR image as `web` and `worker` services.
 
@@ -118,6 +119,7 @@ services:
       STRIPE_PORTAL_RETURN_URL: ${STRIPE_PORTAL_RETURN_URL:-}
       ENABLED_MODULES: ${ENABLED_MODULES:-}
       SCAN_HISTORY_RETENTION_DAYS: ${SCAN_HISTORY_RETENTION_DAYS:-365}
+      MAX_SCHEDULES_PER_USER: ${MAX_SCHEDULES_PER_USER:-10}
       ADMIN_DIGEST_ENABLED: ${ADMIN_DIGEST_ENABLED:-false}
       ADMIN_DIGEST_HOUR: ${ADMIN_DIGEST_HOUR:-8}
       ADMIN_DIGEST_RECIPIENTS: ${ADMIN_DIGEST_RECIPIENTS:-}
@@ -227,6 +229,7 @@ docker compose pull && docker compose up -d
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM` | web | *(empty)* | SMTP fallback when `EMAIL_PROVIDER=smtp` |
 | `WEB_BASE_URL` | worker | *(empty)* | Web base URL the worker posts scan-history events to (e.g. `http://web:3000`). Empty disables history callbacks |
 | `SCAN_HISTORY_RETENTION_DAYS` | web | `365` | Days of scan-history metadata to keep (`0` disables sweeping) |
+| `MAX_SCHEDULES_PER_USER` | web | `10` | Maximum recurring scans per Premium user |
 | `ADMIN_DIGEST_ENABLED` / `ADMIN_DIGEST_HOUR` / `ADMIN_DIGEST_RECIPIENTS` | web | `false` / `8` / *(empty)* | Daily admin digest of signups + scan activity (UTC hour; empty recipients = all admins) |
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_ID`, `STRIPE_PORTAL_RETURN_URL` | web | *(empty)* | Stripe billing (hosted mode). `portal_return_url` optional, defaults to `/account` |
 | `ENABLED_MODULES` | both | *(empty)* | Comma-separated paid module ids to unlock (deployment ceiling) |
@@ -304,11 +307,27 @@ When MFA is enabled, a correct password does **not** create a session — the lo
 
 ## Scan history & analytics
 
-Every scan records a compact, report-free summary (target, resolved IPs, profile, duration, finding counts, per-tool timings). The worker posts it to the web on completion; the web persists it in SQLite.
+Every scan records a compact, report-free summary (target, resolved IPs, profile, duration, finding counts, per-tool timings). The worker posts it to the web on completion; the web persists it in SQLite. For change detection, it also persists finding fingerprint/title/severity/category/affected/source-tool metadata — never evidence, descriptions, remediation, or full reports.
 
 - **Users** see their own history at `/history` with one-click re-run (reports are regenerated on demand — nothing is archived).
 - **Admins** see an analytics dashboard at `/admin/scans`: scans/day, success rate, avg + p95 duration, top targets, module usage, per-tool timing, and CSV export. Filters cover date range, host, user, profile, and status.
 - History is swept automatically past `SCAN_HISTORY_RETENTION_DAYS` and removed when an account is deleted.
+
+## Recurring scans & change detection
+
+Premium users can create daily or weekly scheduled scans for authorized targets. The web scheduler claims due schedules atomically, re-checks the owner account, Premium entitlement, and requested modules, then dispatches through the same worker API as a manual scan.
+
+Each completed scheduled scan is compared with the previous run for that schedule:
+
+- **New** findings are present now but not previously.
+- **Resolved** findings are absent now and every source tool ran successfully.
+- **Not assessed** findings are absent because a source tool failed or did not run; they are not falsely marked resolved.
+- **Severity changes** are shown for the same finding fingerprint.
+- A derived **risk score/grade** and delta are shown in history, the report viewer, and alerts.
+
+Alerts default to new high/critical findings; each schedule can choose off, high, medium, or all, and can alert on scan failure. Finding fingerprints, titles, severity, category, affected asset, and source tools are stored as metadata. Full reports, evidence, descriptions, and remediation text are never persisted.
+
+Scheduled scans are Premium-only. A schedule is paused automatically if the owner loses Premium or a requested module.
 
 ## Admin digest
 
@@ -377,7 +396,7 @@ Test scanners are Node stubs under `tests/fixtures/stub-bin/` — the test suite
 
 ## Roadmap (explicitly deferred)
 
-Redis-backed queues, CIDR scanning, scheduled/recurring scans with change detection and alerting, scan comparison/diffs, custom branding and scheduled client report delivery, UDP/all-port scanning, LLM-personalized remediation text, and additional external vulnerability APIs.
+Redis-backed queues, CIDR scanning, custom branding and scheduled client report delivery, UDP/all-port scanning, LLM-personalized remediation text, and additional external vulnerability APIs.
 
 ## License
 

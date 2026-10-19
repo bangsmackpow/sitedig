@@ -61,6 +61,49 @@ export const createJobSchema = z
   })
   .strict();
 
+const scheduleFrequencySchema = z.enum(['daily', 'weekly']);
+const scheduleAlertThresholdSchema = z.enum(['off', 'high', 'medium', 'all']);
+
+export const createScheduleSchema = z
+  .object({
+    target: z.string().min(1).max(2048),
+    profile: scanProfileSchema,
+    custom: customOptionsSchema.optional(),
+    modules: z.array(moduleIdSchema).max(9).optional(),
+    frequency: scheduleFrequencySchema,
+    hourUtc: z.number().int().min(0).max(23),
+    minuteUtc: z.number().int().min(0).max(59).default(0),
+    dayOfWeek: z.number().int().min(0).max(6).optional(),
+    alertMinSeverity: scheduleAlertThresholdSchema.default('high'),
+    alertOnFailure: z.boolean().default(true),
+    consent: z.literal(true, { errorMap: () => ({ message: 'Recurring authorization acknowledgement is required.' }) }),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.frequency === 'weekly' && value.dayOfWeek === undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['dayOfWeek'], message: 'Choose a day of the week for weekly schedules.' });
+    }
+  });
+
+export const updateScheduleSchema = z
+  .object({
+    frequency: scheduleFrequencySchema.optional(),
+    hourUtc: z.number().int().min(0).max(23).optional(),
+    minuteUtc: z.number().int().min(0).max(59).optional(),
+    dayOfWeek: z.number().int().min(0).max(6).nullable().optional(),
+    alertMinSeverity: scheduleAlertThresholdSchema.optional(),
+    alertOnFailure: z.boolean().optional(),
+    enabled: z.boolean().optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.frequency === 'weekly' && value.dayOfWeek == null) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['dayOfWeek'], message: 'Choose a day of the week for weekly schedules.' });
+    }
+  });
+
 export type CreateJobInput = z.infer<typeof createJobSchema>;
 export type CustomOptionsInput = z.infer<typeof customOptionsSchema>;
 export type ModuleInput = z.infer<typeof moduleIdSchema>;
+export type CreateScheduleInput = z.infer<typeof createScheduleSchema>;
+export type UpdateScheduleInput = z.infer<typeof updateScheduleSchema>;

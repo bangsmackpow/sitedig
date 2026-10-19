@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { getDb, resetDbForTests } from '../src/server/db';
 import { createUser } from '../src/server/users';
-import { applyScanEvent, getScan, getScanStats, listAdminScans, listUserScans, recordScanQueued, sweepScanHistory, toScanView } from '../src/server/scans';
+import { applyScanEvent, getScan, getScanFindings, getScanStats, listAdminScans, listUserScans, recordScanQueued, sweepScanHistory, toScanView } from '../src/server/scans';
 import { buildDigestData } from '../src/server/digest';
 import type { ScanEventPayload } from '../src/shared/types';
 
@@ -87,6 +87,23 @@ describe('scan history', () => {
     expect(view.findings).toEqual({ critical: 1, high: 0, medium: 2, low: 0, informational: 1 });
     expect(view.toolTotal).toBe(2);
     expect(view.toolOk).toBe(1);
+  });
+
+  it('persists finding summaries and replaces them on re-apply', () => {
+    const user = createUser({ email: 'summaries@example.com', passwordHash: 'x', verified: true });
+    queued(user.id, 'scan-summary', 'example.com');
+    const detail = [
+      { fingerprint: 'fp-1', title: 'Weak CSP', severity: 'medium' as const, category: 'misconfiguration' as const, affected: 'example.com', sourceTools: ['header-posture' as const] },
+    ];
+    applyScanEvent(event('scan-summary', 'example.com', { findingsDetail: detail }));
+    expect(getScanFindings('scan-summary')).toEqual(detail);
+    applyScanEvent(
+      event('scan-summary', 'example.com', {
+        findingsDetail: [{ ...detail[0], severity: 'high' }],
+      }),
+    );
+    expect(getScanFindings('scan-summary')).toHaveLength(1);
+    expect(getScanFindings('scan-summary')[0].severity).toBe('high');
   });
 
   it('is idempotent and keeps user attribution across re-applies', () => {

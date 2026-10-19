@@ -198,6 +198,64 @@ CREATE TABLE IF NOT EXISTS app_settings (
 );
 `,
   },
+  {
+    version: 4,
+    sql: `
+-- Recurring scans and change detection. Finding summaries are metadata only:
+-- title/severity/category/affected/source tools, never evidence or reports.
+CREATE TABLE IF NOT EXISTS scheduled_scans (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_email TEXT,
+  target_raw TEXT NOT NULL,
+  host TEXT NOT NULL,
+  path TEXT NOT NULL DEFAULT '/',
+  scheme TEXT,
+  profile TEXT NOT NULL,
+  custom_json TEXT,
+  modules_json TEXT NOT NULL DEFAULT '[]',
+  frequency TEXT NOT NULL CHECK (frequency IN ('daily','weekly')),
+  hour_utc INTEGER NOT NULL,
+  minute_utc INTEGER NOT NULL DEFAULT 0,
+  day_of_week INTEGER,
+  alert_min_severity TEXT NOT NULL DEFAULT 'high'
+    CHECK (alert_min_severity IN ('off','high','medium','all')),
+  alert_on_failure INTEGER NOT NULL DEFAULT 1,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  consent_at TEXT NOT NULL,
+  next_run_at TEXT NOT NULL,
+  last_attempt_at TEXT,
+  last_run_at TEXT,
+  last_scan_id TEXT,
+  last_alert_scan_id TEXT,
+  last_alert_at TEXT,
+  last_error TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_scheduled_scans_user ON scheduled_scans(user_id);
+CREATE INDEX IF NOT EXISTS idx_scheduled_scans_due ON scheduled_scans(enabled, next_run_at);
+
+CREATE TABLE IF NOT EXISTS scan_findings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  scan_id TEXT NOT NULL REFERENCES scans(id) ON DELETE CASCADE,
+  fingerprint TEXT NOT NULL,
+  title TEXT NOT NULL,
+  severity TEXT NOT NULL,
+  category TEXT NOT NULL,
+  affected TEXT,
+  source_tools_json TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL,
+  UNIQUE(scan_id, fingerprint)
+);
+CREATE INDEX IF NOT EXISTS idx_scan_findings_scan ON scan_findings(scan_id);
+CREATE INDEX IF NOT EXISTS idx_scan_findings_fingerprint ON scan_findings(fingerprint);
+
+ALTER TABLE scans ADD COLUMN schedule_id INTEGER
+  REFERENCES scheduled_scans(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_scans_schedule ON scans(schedule_id);
+`,
+  },
 ];
 
 export function openDatabase(dbPath: string): Db {

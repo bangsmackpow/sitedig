@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { apiFetch } from '@/app/lib/api';
-import type { ReportModel, Finding } from '@/shared/types';
+import type { ReportModel, Finding, ScanDiff } from '@/shared/types';
 
 const SEVERITY_ORDER: Record<Finding['severity'], number> = { critical: 5, high: 4, medium: 3, low: 2, informational: 1 };
 
@@ -18,6 +18,7 @@ export default function ReportPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const [report, setReport] = useState<ReportModel | null>(null);
+  const [diff, setDiff] = useState<ScanDiff | null>(null);
   const [expiresAt, setExpiresAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -36,6 +37,9 @@ export default function ReportPage() {
         }
         setError((e as Error).message);
       });
+    apiFetch<{ diff: ScanDiff }>(`/api/scan/${encodeURIComponent(id)}/diff`)
+      .then((data) => setDiff(data.diff))
+      .catch(() => setDiff(null));
   }, [params, router]);
 
   if (error) {
@@ -95,6 +99,61 @@ export default function ReportPage() {
 
       <h2 style={{ marginTop: 24 }}>Executive summary</h2>
       <p>{report.executiveSummary}</p>
+
+      {diff && (
+        <section id="changes" style={{ marginTop: 24 }}>
+          <h2>Changes since previous scan</h2>
+          {!diff.previousScanId ? (
+            <p className="meta-line">No previous completed scan was found for this host, so there is nothing to compare yet.</p>
+          ) : (
+            <>
+              <p className="meta-line">
+                Compared with <Link className="link" href={`/scan/${encodeURIComponent(diff.previousScanId)}`}>{diff.previousScanId}</Link>.
+                Risk: {diff.previousRisk?.score ?? '-'} → {diff.risk.score} ({diff.risk.grade})
+                {diff.riskDelta !== null ? ` (${diff.riskDelta >= 0 ? '+' : ''}${diff.riskDelta})` : ''}.
+              </p>
+              <div className="summary-grid" style={{ marginTop: 8 }}>
+                <span className="summary-pill">{diff.newFindings.length} new</span>
+                <span className="summary-pill">{diff.resolvedFindings.length} resolved</span>
+                <span className="summary-pill">{diff.severityChanges.length} severity changes</span>
+                {diff.notAssessed.length > 0 && <span className="summary-pill">{diff.notAssessed.length} not assessed</span>}
+                <span className="summary-pill">{diff.unchangedCount} unchanged</span>
+              </div>
+              {diff.newFindings.length > 0 && (
+                <>
+                  <h3>New findings</h3>
+                  <ul>
+                    {diff.newFindings.slice(0, 10).map((f) => (
+                      <li key={f.fingerprint}><strong>[{f.severity}]</strong> {f.title}{f.affected ? ` — ${f.affected}` : ''}</li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              {diff.resolvedFindings.length > 0 && (
+                <>
+                  <h3>Resolved findings</h3>
+                  <ul>
+                    {diff.resolvedFindings.slice(0, 10).map((f) => (
+                      <li key={f.fingerprint}><strong>[{f.severity}]</strong> {f.title}{f.affected ? ` — ${f.affected}` : ''}</li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              {diff.notAssessed.length > 0 && (
+                <>
+                  <h3>Not assessed</h3>
+                  <p className="meta-line">These findings were present previously but the relevant tool failed or did not run, so they are not marked resolved.</p>
+                  <ul>
+                    {diff.notAssessed.slice(0, 10).map((f) => (
+                      <li key={f.fingerprint}><strong>[{f.severity}]</strong> {f.title}</li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </>
+          )}
+        </section>
+      )}
 
       <h2>Findings</h2>
       {findings.length === 0 && <p className="meta-line">No findings were recorded.</p>}

@@ -24,6 +24,7 @@ interface ScanView {
   toolOk: number;
   toolTotal: number;
   error: string | null;
+  risk: { score: number; grade: string };
 }
 
 function statusClass(status: string): string {
@@ -84,6 +85,7 @@ export default function HistoryPage() {
               <th>Status</th>
               <th>Duration</th>
               <th>Ports</th>
+              <th>Risk</th>
               <th>Findings</th>
               <th />
             </tr>
@@ -102,6 +104,7 @@ export default function HistoryPage() {
                 </td>
                 <td>{duration(s.durationMs)}</td>
                 <td>{s.portCount}</td>
+                <td><span className={`pill ${s.risk.score >= 80 ? 'active' : s.risk.score >= 60 ? 'info' : 'disabled'}`}>{s.risk.grade} {s.risk.score}</span></td>
                 <td className="meta-line" style={{ whiteSpace: 'nowrap' }}>
                   {s.findings.critical > 0 && <span className="pill disabled" style={{ marginRight: 4 }}>{s.findings.critical} crit</span>}
                   {s.findings.high > 0 && <span className="pill info" style={{ marginRight: 4 }}>{s.findings.high} high</span>}

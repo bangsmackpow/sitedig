@@ -24,6 +24,7 @@ export async function GET(): Promise<NextResponse> {
     email: { provider: cfg.email.provider, configured: cfg.email.configured },
     digest: { enabled: cfg.digest.enabled, hourUtc: cfg.digest.hourUtc, recipients: cfg.digest.recipients.length },
     scanHistoryRetentionDays: cfg.scanHistoryRetentionDays,
+    maxSchedulesPerUser: cfg.maxSchedulesPerUser,
     worker,
   });
 }

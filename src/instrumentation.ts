@@ -19,15 +19,23 @@ export async function register(): Promise<void> {
     const { getWebConfig } = await import('./shared/config');
     const config = getWebConfig();
     const { runScheduledMaintenance } = await import('./server/digest');
+    const { runDueScheduledScans } = await import('./server/scheduler');
 
     const tick = () => {
       runScheduledMaintenance().catch((e) => log.warn('maintenance_tick_failed', { error: (e as Error).message }));
     };
+    const scheduleTick = () => {
+      runDueScheduledScans().catch((e) => log.warn('scheduled_scans_tick_failed', { error: (e as Error).message }));
+    };
 
     const HOUR_MS = 60 * 60 * 1000;
-    // Catch-up run shortly after boot, then hourly.
+    const SCHEDULE_TICK_MS = 5 * 60 * 1000;
+    // Catch-up run shortly after boot, then hourly for digest/retention.
     setTimeout(tick, 30_000).unref?.();
     setInterval(tick, HOUR_MS).unref?.();
+    // Recurring scans get 5-minute precision, independent of the digest tick.
+    setTimeout(scheduleTick, 15_000).unref?.();
+    setInterval(scheduleTick, SCHEDULE_TICK_MS).unref?.();
 
     log.info('maintenance_scheduler_started', { digestEnabled: config.digest.enabled, digestHourUtc: config.digest.hourUtc });
   } catch (e) {

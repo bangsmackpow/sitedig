@@ -55,6 +55,8 @@ export interface WebConfig {
   };
   /** Days of scan history to retain (0 disables sweeping). */
   scanHistoryRetentionDays: number;
+  /** Maximum recurring scans a single user may create. */
+  maxSchedulesPerUser: number;
 }
 
 export interface WorkerConfig {
@@ -157,6 +159,7 @@ export function getWebConfig(env: NodeJS.ProcessEnv = process.env): WebConfig {
         .filter(Boolean),
     },
     scanHistoryRetentionDays: intEnv(env, 'SCAN_HISTORY_RETENTION_DAYS', 365),
+    maxSchedulesPerUser: intEnv(env, 'MAX_SCHEDULES_PER_USER', 10),
   };
 }
 

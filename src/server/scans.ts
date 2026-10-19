@@ -1,5 +1,6 @@
 import { getDb } from './db';
-import type { FindingCounts, ScanEventPayload, ScanToolTiming } from '../shared/types';
+import { riskGrade, riskScore } from '../shared/risk';
+import type { FindingCounts, ScanEventPayload, ScanFindingSummary, ScanRisk, ScanToolTiming } from '../shared/types';
 
 export interface ScanRow {
   id: string;
@@ -28,6 +29,7 @@ export interface ScanRow {
   tool_ok: number;
   tool_total: number;
   error: string | null;
+  schedule_id: number | null;
 }
 
 export interface ScanView {
@@ -49,6 +51,8 @@ export interface ScanView {
   toolOk: number;
   toolTotal: number;
   error: string | null;
+  scheduleId: number | null;
+  risk: ScanRisk;
   userEmail?: string | null;
 }
 
@@ -63,6 +67,14 @@ function parseJsonArray(value: string | null): string[] {
 }
 
 export function toScanView(row: ScanRow, withUser = false): ScanView {
+  const findings: FindingCounts = {
+    critical: row.findings_critical,
+    high: row.findings_high,
+    medium: row.findings_medium,
+    low: row.findings_low,
+    informational: row.findings_informational,
+  };
+  const score = riskScore(findings);
   return {
     id: row.id,
     target: row.target_raw,
@@ -78,16 +90,12 @@ export function toScanView(row: ScanRow, withUser = false): ScanView {
     finishedAt: row.finished_at,
     durationMs: row.duration_ms,
     portCount: row.port_count,
-    findings: {
-      critical: row.findings_critical,
-      high: row.findings_high,
-      medium: row.findings_medium,
-      low: row.findings_low,
-      informational: row.findings_informational,
-    },
+    findings,
     toolOk: row.tool_ok,
     toolTotal: row.tool_total,
     error: row.error,
+    scheduleId: row.schedule_id ?? null,
+    risk: { score, grade: riskGrade(score) },
     ...(withUser ? { userEmail: row.user_email } : {}),
   };
 }
@@ -103,11 +111,12 @@ export function recordScanQueued(input: {
   scheme: string;
   profile: string;
   modules: string[];
+  scheduleId?: number | null;
 }): void {
   getDb()
     .prepare(
-      `INSERT INTO scans (id, user_id, user_email, target_raw, host, path, scheme, profile, modules_json, status, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?)
+      `INSERT INTO scans (id, user_id, user_email, target_raw, host, path, scheme, profile, modules_json, status, schedule_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          user_id = excluded.user_id,
          user_email = excluded.user_email,
@@ -116,7 +125,8 @@ export function recordScanQueued(input: {
          path = excluded.path,
          scheme = excluded.scheme,
          profile = excluded.profile,
-         modules_json = excluded.modules_json`,
+         modules_json = excluded.modules_json,
+         schedule_id = excluded.schedule_id`,
     )
     .run(
       input.id,
@@ -128,6 +138,7 @@ export function recordScanQueued(input: {
       input.scheme,
       input.profile,
       JSON.stringify(input.modules),
+      input.scheduleId ?? null,
       new Date().toISOString(),
     );
 }
@@ -136,6 +147,17 @@ function insertTools(scanId: string, tools: ScanToolTiming[]): void {
   const stmt = getDb().prepare('INSERT INTO scan_tools (scan_id, tool, ok, timed_out, exit_code, duration_ms) VALUES (?, ?, ?, ?, ?, ?)');
   for (const t of tools) {
     stmt.run(scanId, t.tool, t.ok ? 1 : 0, t.timedOut ? 1 : 0, t.exitCode, Math.max(0, Math.round(t.durationMs)));
+  }
+}
+
+function insertFindings(scanId: string, findings: ScanFindingSummary[]): void {
+  getDb().prepare('DELETE FROM scan_findings WHERE scan_id = ?').run(scanId);
+  const stmt = getDb().prepare(
+    'INSERT INTO scan_findings (scan_id, fingerprint, title, severity, category, affected, source_tools_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+  );
+  const now = new Date().toISOString();
+  for (const f of findings.slice(0, 500)) {
+    stmt.run(scanId, f.fingerprint, f.title, f.severity, f.category, f.affected, JSON.stringify(f.sourceTools ?? []), now);
   }
 }
 
@@ -211,12 +233,65 @@ export function applyScanEvent(payload: ScanEventPayload): void {
 
     db.prepare('DELETE FROM scan_tools WHERE scan_id = ?').run(payload.scanId);
     insertTools(payload.scanId, payload.tools);
+    insertFindings(payload.scanId, payload.findingsDetail ?? []);
   });
   run();
 }
 
 export function getScan(id: string): ScanRow | null {
   return (getDb().prepare('SELECT * FROM scans WHERE id = ?').get(id) as ScanRow | undefined) ?? null;
+}
+
+export function getScanFindings(scanId: string): ScanFindingSummary[] {
+  const rows = getDb()
+    .prepare('SELECT fingerprint, title, severity, category, affected, source_tools_json FROM scan_findings WHERE scan_id = ? ORDER BY id')
+    .all(scanId) as Array<{
+    fingerprint: string;
+    title: string;
+    severity: ScanFindingSummary['severity'];
+    category: ScanFindingSummary['category'];
+    affected: string | null;
+    source_tools_json: string;
+  }>;
+  return rows.map((r) => ({
+    fingerprint: r.fingerprint,
+    title: r.title,
+    severity: r.severity,
+    category: r.category,
+    affected: r.affected,
+    sourceTools: parseJsonArray(r.source_tools_json) as ScanFindingSummary['sourceTools'],
+  }));
+}
+
+/** Previous completed scan for the same schedule, or same user/host/path. */
+export function getPreviousScan(current: ScanRow): ScanRow | null {
+  if (current.schedule_id !== null) {
+    const scheduled = getDb()
+      .prepare(
+        `SELECT * FROM scans
+         WHERE schedule_id = ? AND status = 'completed'
+           AND rowid < (SELECT rowid FROM scans WHERE id = ?)
+         ORDER BY rowid DESC LIMIT 1`,
+      )
+      .get(current.schedule_id, current.id) as ScanRow | undefined;
+    if (scheduled) return scheduled;
+  }
+  if (current.user_id === null) return null;
+  return (
+    (getDb()
+      .prepare(
+        `SELECT * FROM scans
+         WHERE user_id = ? AND host = ? AND path = ? AND status = 'completed'
+           AND rowid < (SELECT rowid FROM scans WHERE id = ?)
+         ORDER BY rowid DESC LIMIT 1`,
+      )
+      .get(current.user_id, current.host, current.path, current.id) as ScanRow | undefined) ?? null
+  );
+}
+
+export function getScanToolStatus(scanId: string): Map<string, boolean> {
+  const rows = getDb().prepare('SELECT tool, ok FROM scan_tools WHERE scan_id = ?').all(scanId) as Array<{ tool: string; ok: number }>;
+  return new Map(rows.map((r) => [r.tool, Boolean(r.ok)]));
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -405,8 +480,12 @@ export function getScanStats(fromIso: string, toIso: string): ScanStats {
 export function sweepScanHistory(retentionDays: number): number {
   if (!Number.isFinite(retentionDays) || retentionDays <= 0) return 0;
   const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString();
-  const res = getDb().prepare('DELETE FROM scans WHERE created_at < ?').run(cutoff);
-  return res.changes;
+  const db = getDb();
+  const run = db.transaction(() => {
+    db.prepare('UPDATE scheduled_scans SET last_scan_id = NULL WHERE last_scan_id IN (SELECT id FROM scans WHERE created_at < ?)').run(cutoff);
+    return db.prepare('DELETE FROM scans WHERE created_at < ?').run(cutoff).changes;
+  });
+  return run();
 }
 
 export function deleteUserScans(userId: number): void {

@@ -335,6 +335,21 @@ export class ScannerService {
     if (job.report) {
       for (const f of job.report.findings) findings[f.severity] += 1;
     }
+    const findingsDetail = (job.report?.findings ?? [])
+      .map((f) => ({
+        fingerprint: crypto
+          .createHash('sha256')
+          .update(`${f.category}|${f.title.trim().toLowerCase()}|${f.affected ?? ''}`)
+          .digest('hex')
+          .slice(0, 32),
+        title: f.title,
+        severity: f.severity,
+        category: f.category,
+        affected: f.affected,
+        sourceTools: f.sourceTools ?? [],
+      }))
+      .filter((f, index, all) => all.findIndex((other) => other.fingerprint === f.fingerprint) === index)
+      .slice(0, 500);
     const tools = (job.report?.toolResults ?? []).map((r) => ({
       tool: r.tool,
       ok: r.ok,
@@ -363,6 +378,7 @@ export class ScannerService {
       durationMs,
       portCount: job.report?.ports.length ?? 0,
       findings,
+      findingsDetail,
       tools,
       toolOk: tools.filter((t) => t.ok).length,
       toolTotal: tools.length,

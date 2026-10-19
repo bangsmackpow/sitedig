@@ -6,6 +6,7 @@ import { ensureInitialized } from '@/server/bootstrap';
 import { errorJson, json } from '@/server/http';
 import { getWebConfig } from '@/shared/config';
 import { applyScanEvent } from '@/server/scans';
+import { maybeSendScheduleAlert } from '@/server/schedule-alerts';
 import type { ScanEventPayload } from '@/shared/types';
 
 export const dynamic = 'force-dynamic';
@@ -17,6 +18,17 @@ const findingCounts = z
     medium: z.number().int().min(0),
     low: z.number().int().min(0),
     informational: z.number().int().min(0),
+  })
+  .strict();
+
+const findingSummarySchema = z
+  .object({
+    fingerprint: z.string().min(1).max(64),
+    title: z.string().min(1).max(500),
+    severity: z.enum(['critical', 'high', 'medium', 'low', 'informational']),
+    category: z.enum(['exposure', 'misconfiguration', 'outdated-technology', 'wordpress', 'vulnerability', 'informational']),
+    affected: z.string().max(2048).nullable(),
+    sourceTools: z.array(z.string().max(64)).max(32),
   })
   .strict();
 
@@ -38,6 +50,7 @@ const payloadSchema = z
     durationMs: z.number().int().min(0).nullable(),
     portCount: z.number().int().min(0),
     findings: findingCounts,
+    findingsDetail: z.array(findingSummarySchema).max(1000).optional().default([]),
     tools: z
       .array(
         z
@@ -80,5 +93,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   } catch {
     return errorJson('Failed to record the scan event.', 500, 'internal');
   }
+  void maybeSendScheduleAlert(parsed.data.scanId).catch(() => undefined);
   return json({ ok: true });
 }
