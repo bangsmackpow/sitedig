@@ -13,7 +13,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends python3 make g+
     && npm ci
 
 # ---------------------------------------------------------------------------
-# Stage 2: build
+# Stage 2: production dependencies
+# ---------------------------------------------------------------------------
+# better-sqlite3 is built here so the runtime image does not need a compiler,
+# Python, or development headers. The whole build toolchain stays in this
+# discarded stage instead of adding hundreds of MB to the final image.
+FROM node:22-bookworm-slim AS prod-deps
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ \
+    && rm -rf /var/lib/apt/lists/* \
+    && npm ci --omit=dev --omit=optional \
+    && npm cache clean --force
+
+# ---------------------------------------------------------------------------
+# Stage 3: build
 # ---------------------------------------------------------------------------
 FROM node:22-bookworm-slim AS build
 WORKDIR /app
@@ -25,7 +39,7 @@ ENV APP_VERSION=${APP_VERSION}
 RUN npm run build
 
 # ---------------------------------------------------------------------------
-# Stage 3: runtime
+# Stage 4: runtime
 # ---------------------------------------------------------------------------
 FROM node:22-bookworm-slim AS runtime
 
@@ -52,15 +66,13 @@ ARG WPSCAN_VERSION=3.8.25
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates \
       curl \
-      g++ \
       libcurl4 \
       libxslt1.1 \
       libyaml-0-2 \
-      make \
       nmap \
       openssl \
-      python3 \
       whatweb \
+      zlib1g \
     && if [ "$INSTALL_WPSCAN" = "true" ]; then \
          apt-get install -y --no-install-recommends \
            build-essential \
@@ -78,6 +90,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
          # activesupport dependency needs them at load time or it crashes.
          && gem install logger --no-document \
          && gem install base64 --no-document \
+         && gem cleanup \
+         && rm -rf /usr/local/lib/ruby/gems/*/cache/* /root/.gem \
+         # The native extensions need the runtime libraries above, but not the
+         # compiler, headers, git, or Ruby development package. Removing them
+         # after the gems are built cuts the largest image layer substantially.
+         && apt-get purge -y --auto-remove \
+              build-essential \
+              git \
+              libcurl4-openssl-dev \
+              libxml2-dev \
+              libxslt1-dev \
+              pkg-config \
+              ruby-dev \
+              zlib1g-dev \
          && { wpscan --version || { echo '==== WPScan runtime failure - output below ===='; wpscan --version 2>&1 | tail -40; exit 1; }; }; \
        fi \
     && rm -rf /var/lib/apt/lists/* /tmp/*
@@ -147,10 +173,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends unzip bsdmainut
 
 WORKDIR /app
 COPY --from=build /app/package.json /app/package-lock.json ./
-# Production dependencies only. `--omit=optional` drops Next.js's bundled
-# `sharp` image-optimization stack (~100MB+ of platform binaries), which this
-# app never uses (image optimization is disabled in next.config).
-RUN npm ci --omit=dev --omit=optional && npm cache clean --force
+# Production dependencies only, copied from the disposable prod-deps stage.
+# `--omit=optional` drops Next.js's bundled `sharp` image-optimization stack,
+# which this app never uses (image optimization is disabled in next.config).
+# The node -e check verifies the native better-sqlite3 binding loads in the
+# runtime image without needing a compiler.
+COPY --from=prod-deps /app/node_modules ./node_modules
+RUN node -e "require('better-sqlite3')"
 # Build outputs.
 COPY --from=build /app/.next ./.next
 COPY --from=build /app/dist-worker ./dist-worker
