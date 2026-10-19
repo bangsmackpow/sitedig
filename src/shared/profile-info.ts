@@ -46,6 +46,20 @@ function toolLabel(tool: ToolName): string {
       return 'email & DNS posture';
     case 'osv':
       return 'OSV';
+    case 'crawl-rules':
+      return 'crawl rules';
+    case 'security-txt':
+      return 'security.txt';
+    case 'page-recon':
+      return 'page analysis';
+    case 'header-posture':
+      return 'HTTP posture';
+    case 'dns-hardening':
+      return 'DNS hardening';
+    case 'dnssec':
+      return 'DNSSEC';
+    case 'ip-intel':
+      return 'IP intel';
     default:
       return tool;
   }

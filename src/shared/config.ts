@@ -81,6 +81,10 @@ export interface WorkerConfig {
   nucleiTemplatesDir: string;
   /** Path to the wordlist used by content-discovery. */
   wordlistPath: string;
+  /** DNS-over-HTTPS JSON endpoint used by the domain-hardening module. */
+  dohEndpoint: string;
+  /** IP geolocation endpoint used by the infra-intel module (no API key). */
+  ipIntelEndpoint: string;
 }
 
 function intEnv(env: NodeJS.ProcessEnv, name: string, fallback: number): number {
@@ -206,6 +210,8 @@ export function getWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerCon
     nucleiTemplates,
     nucleiTemplatesDir: nucleiDir,
     wordlistPath: env.CONTENT_WORDLIST ?? DEFAULT_CONTENT_WORDLIST,
+    dohEndpoint: (env.DOH_ENDPOINT ?? 'https://cloudflare-dns.com/dns-query').replace(/\/+$/, ''),
+    ipIntelEndpoint: (env.IP_INTEL_ENDPOINT ?? 'https://ipwho.is').replace(/\/+$/, ''),
   };
 }
 

@@ -41,6 +41,14 @@ describe('expandModules', () => {
     expect(wb?.args).toContain('example.com');
   });
 
+  it('expands web-trust, domain-hardening, and infra-intel', () => {
+    const steps = expandModules(['web-trust', 'domain-hardening', 'infra-intel'], target, opts);
+    const tools = steps.map((s) => s.tool);
+    expect(tools).toEqual(expect.arrayContaining(['crawl-rules', 'security-txt', 'page-recon', 'header-posture', 'dns-hardening', 'dnssec', 'ip-intel']));
+    const page = steps.find((s) => s.tool === 'page-recon');
+    expect(page?.args[0]).toBe('https://example.com/shop');
+  });
+
   it('adds no tool steps for the report-only remediation-playbook module', () => {
     const steps = expandModules(['remediation-playbook'], target, opts);
     expect(steps).toHaveLength(0);

@@ -47,6 +47,58 @@ describe('renderMarkdown', () => {
     expect(md).toContain('quick');
   });
 
+  it('renders new trust, hardening, and infrastructure sections', () => {
+    const report = baseReport({
+      crawlRules: {
+        robots: { found: true, url: 'https://example.com/robots.txt', status: 200, groups: [], sitemaps: [], aiBots: [{ name: 'GPTBot', allowed: false }], sensitiveDisallows: ['/admin'], error: null },
+        sitemap: { found: true, urls: ['https://example.com/a'], urlCount: 1, sitemapCount: 1, error: null },
+        error: null,
+      },
+      securityTxt: { found: false, url: null, status: null, contacts: [], expires: null, policy: null, encryption: null, acknowledgments: null, preferredLanguages: null, error: null },
+      pageRecon: {
+        url: 'https://example.com/',
+        status: 200,
+        finalUrl: 'https://example.com/',
+        contentType: 'text/html',
+        metadata: { title: 'Example', description: null, canonical: null, language: 'en', generator: null, og: {}, twitter: {} },
+        links: { internal: 1, external: 0, total: 1, samples: [] },
+        mixedContent: [],
+        missingSri: [],
+        thirdParties: [],
+        error: null,
+      },
+      headerPosture: {
+        hsts: { present: true, value: 'max-age=300', maxAge: 300, includeSubDomains: false, preload: false },
+        csp: { present: true, reportOnly: false, value: "default-src 'self'", directives: {}, unsafeInline: false, unsafeEval: false, wildcard: false, missingObjectSrc: true, missingBaseUri: true },
+        cookies: [],
+        alpnProtocol: 'h2',
+        httpVersionHint: 'HTTP/2',
+        error: null,
+      },
+      dnsHardening: {
+        domain: 'example.com',
+        caa: [],
+        soa: null,
+        srv: [],
+        nsAddresses: [],
+        dkim: [{ selector: 'default', found: false, keyType: null, revoked: false }],
+        bimi: null,
+        dmarc: { present: true, policy: 'none', subdomainPolicy: null, pct: 100, rua: [], ruf: [], alignmentDkim: null, alignmentSpf: null },
+        error: null,
+      },
+      dnssec: { signed: false, ad: false, dnskeyCount: 0, dsCount: 0, algorithms: [], error: null },
+      ipIntel: { ips: [], waf: { name: 'Cloudflare', evidence: ['header: cf-ray'] }, cdn: null, error: null },
+    });
+    const md = renderMarkdown(report);
+    expect(md).toContain('Crawl Rules & Sitemap');
+    expect(md).toContain('security.txt');
+    expect(md).toContain('Page Metadata & Assets');
+    expect(md).toContain('HTTP Security Posture');
+    expect(md).toContain('DNS & Email Hardening');
+    expect(md).toContain('DNSSEC');
+    expect(md).toContain('IP, ASN & Edge Infrastructure');
+  });
+
   it('renders findings with severity and evidence', () => {
     const report = baseReport({
       findings: [

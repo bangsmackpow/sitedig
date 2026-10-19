@@ -27,10 +27,14 @@ function makeConfig(overrides: Partial<WorkerConfig> = {}): WorkerConfig {
     artifactDir: fs.mkdtempSync(path.join(os.tmpdir(), 'sitedig-test-')),
     artifactTtlMinutes: 30,
     scannerBinDir: BIN,
+    webBaseUrl: '',
     enabledModules: new Set<ModuleId>(),
     wpscanApiToken: '',
     nucleiTemplates: [],
+    nucleiTemplatesDir: '/opt/nuclei-templates',
     wordlistPath: '/opt/sitedig/wordlists/common.txt',
+    dohEndpoint: 'https://cloudflare-dns.com/dns-query',
+    ipIntelEndpoint: 'https://ipwho.is',
     ...overrides,
   };
 }
@@ -159,6 +163,12 @@ describe('worker HTTP server', () => {
     expect(view.status).toBe('completed');
     expect(view.hasArtifacts).toBe(true);
     expect(view.summaryCounts).not.toBeNull();
+
+    const reportRes = await fetch(`${baseUrl}/jobs/${jobId}/report`);
+    expect(reportRes.status).toBe(200);
+    const reportBody = (await reportRes.json()) as { report: { meta: { target: string } }; expiresAt: string };
+    expect(reportBody.report.meta.target).toContain('example.com');
+    expect(reportBody.expiresAt).toBeTruthy();
 
     const pdfRes = await fetch(`${baseUrl}/jobs/${jobId}/artifacts/pdf`);
     expect(pdfRes.status).toBe(200);

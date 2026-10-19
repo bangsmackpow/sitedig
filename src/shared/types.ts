@@ -18,7 +18,14 @@ export type ToolName =
   | 'testssl'
   | 'feroxbuster'
   | 'waybackurls'
-  | 'osv';
+  | 'osv'
+  | 'crawl-rules'
+  | 'security-txt'
+  | 'page-recon'
+  | 'header-posture'
+  | 'dns-hardening'
+  | 'dnssec'
+  | 'ip-intel';
 
 /** Paid add-on modules. Each maps to a set of tools and is env-gated. */
 export type ModuleId =
@@ -27,7 +34,10 @@ export type ModuleId =
   | 'tls-hardening'
   | 'content-discovery'
   | 'cve-context'
-  | 'remediation-playbook';
+  | 'remediation-playbook'
+  | 'web-trust'
+  | 'domain-hardening'
+  | 'infra-intel';
 
 export type JobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
 
@@ -124,6 +134,8 @@ export interface TlsObservation {
   validTo: string | null;
   daysRemaining: number | null;
   selfSigned: boolean;
+  /** ALPN protocol negotiated during the handshake (e.g. h2 or http/1.1). */
+  alpnProtocol?: string | null;
   error: string | null;
 }
 
@@ -258,6 +270,170 @@ export interface EmailPostureResult {
   error: string | null;
 }
 
+// --- Web trust module observations -----------------------------------------
+
+export interface CrawlRuleGroup {
+  userAgents: string[];
+  allow: string[];
+  disallow: string[];
+}
+
+export interface CrawlRulesResult {
+  robots: {
+    found: boolean;
+    url: string | null;
+    status: number | null;
+    groups: CrawlRuleGroup[];
+    sitemaps: string[];
+    aiBots: Array<{ name: string; allowed: boolean }>;
+    sensitiveDisallows: string[];
+    error: string | null;
+  };
+  sitemap: {
+    found: boolean;
+    urls: string[];
+    urlCount: number;
+    sitemapCount: number;
+    error: string | null;
+  };
+  error: string | null;
+}
+
+export interface SecurityTxtResult {
+  found: boolean;
+  url: string | null;
+  status: number | null;
+  contacts: string[];
+  expires: string | null;
+  policy: string | null;
+  encryption: string | null;
+  acknowledgments: string | null;
+  preferredLanguages: string | null;
+  error: string | null;
+}
+
+export interface PageMetadata {
+  title: string | null;
+  description: string | null;
+  canonical: string | null;
+  language: string | null;
+  generator: string | null;
+  og: Record<string, string>;
+  twitter: Record<string, string>;
+}
+
+export interface PageAssetIssue {
+  url: string;
+  kind: string;
+}
+
+export interface ThirdPartyDomain {
+  host: string;
+  category: string;
+  count: number;
+}
+
+export interface PageReconResult {
+  url: string;
+  status: number | null;
+  finalUrl: string | null;
+  contentType: string | null;
+  metadata: PageMetadata;
+  links: { internal: number; external: number; total: number; samples: string[] };
+  mixedContent: PageAssetIssue[];
+  missingSri: PageAssetIssue[];
+  thirdParties: ThirdPartyDomain[];
+  error: string | null;
+}
+
+export interface HstsAnalysis {
+  present: boolean;
+  value: string | null;
+  maxAge: number | null;
+  includeSubDomains: boolean;
+  preload: boolean;
+}
+
+export interface CspAnalysis {
+  present: boolean;
+  reportOnly: boolean;
+  value: string | null;
+  directives: Record<string, string[]>;
+  unsafeInline: boolean;
+  unsafeEval: boolean;
+  wildcard: boolean;
+  missingObjectSrc: boolean;
+  missingBaseUri: boolean;
+}
+
+export interface CookieObservation {
+  name: string;
+  secure: boolean;
+  httpOnly: boolean;
+  sameSite: string | null;
+  expires: string | null;
+  maxAge: number | null;
+}
+
+export interface HeaderPostureResult {
+  hsts: HstsAnalysis;
+  csp: CspAnalysis | null;
+  cookies: CookieObservation[];
+  alpnProtocol: string | null;
+  httpVersionHint: string | null;
+  error: string | null;
+}
+
+// --- Domain hardening module observations ----------------------------------
+
+export interface DnsHardeningResult {
+  domain: string;
+  caa: Array<{ flags: number; tag: string; value: string }>;
+  soa: { ns: string; hostmaster: string; serial: number; refresh: number; retry: number; expire: number; minimum: number } | null;
+  srv: Array<{ name: string; port: number; priority: number; weight: number; target: string }>;
+  nsAddresses: Array<{ ns: string; addresses: string[] }>;
+  dkim: Array<{ selector: string; found: boolean; keyType: string | null; revoked: boolean }>;
+  bimi: string | null;
+  dmarc: {
+    present: boolean;
+    policy: string | null;
+    subdomainPolicy: string | null;
+    pct: number | null;
+    rua: string[];
+    ruf: string[];
+    alignmentDkim: string | null;
+    alignmentSpf: string | null;
+  } | null;
+  error: string | null;
+}
+
+export interface DnssecResult {
+  signed: boolean;
+  ad: boolean;
+  dnskeyCount: number;
+  dsCount: number;
+  algorithms: string[];
+  error: string | null;
+}
+
+// --- Infrastructure intel module observations ------------------------------
+
+export interface IpIntelResult {
+  ips: Array<{
+    ip: string;
+    ptr: string | null;
+    country: string | null;
+    region: string | null;
+    city: string | null;
+    asn: string | null;
+    org: string | null;
+    isp: string | null;
+  }>;
+  waf: { name: string; evidence: string[] } | null;
+  cdn: { name: string; evidence: string[] } | null;
+  error: string | null;
+}
+
 export interface ReportModel {
   meta: ReportMeta;
   executiveSummary: string;
@@ -277,6 +453,13 @@ export interface ReportModel {
   httpx?: HttpxObservation | null;
   archivedUrls?: ArchivedUrl[];
   email?: EmailPostureResult | null;
+  crawlRules?: CrawlRulesResult | null;
+  securityTxt?: SecurityTxtResult | null;
+  pageRecon?: PageReconResult | null;
+  headerPosture?: HeaderPostureResult | null;
+  dnsHardening?: DnsHardeningResult | null;
+  dnssec?: DnssecResult | null;
+  ipIntel?: IpIntelResult | null;
   toolResults: ToolResultRecord[];
   limitations: string[];
 }

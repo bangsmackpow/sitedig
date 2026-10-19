@@ -74,6 +74,8 @@ services:
       ARTIFACT_DIR: ${ARTIFACT_DIR:-/tmp/sitedig-artifacts}
       ARTIFACT_TTL_MINUTES: ${ARTIFACT_TTL_MINUTES:-30}
       ENABLED_MODULES: ${ENABLED_MODULES:-}
+      DOH_ENDPOINT: ${DOH_ENDPOINT:-https://cloudflare-dns.com/dns-query}
+      IP_INTEL_ENDPOINT: ${IP_INTEL_ENDPOINT:-https://ipwho.is}
       WPSCAN_API_TOKEN: ${WPSCAN_API_TOKEN:-}
       NUCLEI_TEMPLATES: ${NUCLEI_TEMPLATES:-http/technologies/tech-detect.yaml,http/exposures/configs/git-config.yaml,ssl/tls-version.yaml,ssl/deprecated-tls.yaml,ssl/self-signed-ssl.yaml,ssl/expired-ssl.yaml,ssl/weak-cipher-suites.yaml}
       NUCLEI_TEMPLATES_DIR: ${NUCLEI_TEMPLATES_DIR:-/opt/nuclei-templates}

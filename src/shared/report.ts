@@ -45,6 +45,13 @@ export const TOOL_MATRIX_ORDER: ToolName[] = [
   'rdap',
   'email',
   'osv',
+  'crawl-rules',
+  'security-txt',
+  'page-recon',
+  'header-posture',
+  'dns-hardening',
+  'dnssec',
+  'ip-intel',
 ];
 
 const CONFLICT_TOOL_PREFIXES: Array<[string, ToolName]> = [
@@ -559,6 +566,165 @@ export function renderMarkdown(report: ReportModel): string {
     lines.push('| --- | --- | --- | --- |');
     for (const c of report.cveContext) {
       lines.push(`| ${escMd(c.name)} | ${escMd(c.version)} | ${c.cveCount} | ${c.severities.critical + c.severities.high} |`);
+    }
+    lines.push('');
+  }
+
+  // Web trust: crawl rules and security.txt
+  if (report.crawlRules) {
+    appendixHeader(lines, 'Crawl Rules & Sitemap');
+    const c = report.crawlRules;
+    if (c.robots.error) {
+      lines.push(`robots.txt could not be read: ${c.robots.error}`);
+    } else if (!c.robots.found) {
+      lines.push('No robots.txt file was found.');
+    } else {
+      lines.push(`- **robots.txt:** ${c.robots.url ?? 'n/a'} (HTTP ${c.robots.status ?? 'n/a'})`);
+      lines.push(`- **Rule groups:** ${c.robots.groups.length}`);
+      lines.push(`- **Sitemap references:** ${c.robots.sitemaps.length > 0 ? c.robots.sitemaps.map(escMd).join(', ') : 'none'}`);
+      if (c.robots.aiBots.length > 0) {
+        lines.push(`- **AI crawler rules:** ${c.robots.aiBots.map((b) => `${b.name}=${b.allowed ? 'allowed' : 'blocked'}`).join(', ')}`);
+      }
+      if (c.robots.sensitiveDisallows.length > 0) {
+        lines.push(`- **Sensitive-looking disallows:** ${c.robots.sensitiveDisallows.map((p) => `\`${escMd(p)}\``).join(', ')}`);
+      }
+    }
+    if (c.sitemap.error) {
+      lines.push(`Sitemap could not be read: ${c.sitemap.error}`);
+    } else if (!c.sitemap.found) {
+      lines.push('No sitemap was found.');
+    } else {
+      lines.push(`- **Sitemaps processed:** ${c.sitemap.sitemapCount}`);
+      lines.push(`- **URLs listed:** ${c.sitemap.urlCount}`);
+      for (const url of c.sitemap.urls.slice(0, 15)) lines.push(`  - ${escMd(url)}`);
+      if (c.sitemap.urlCount > 15) lines.push(`  - _and ${c.sitemap.urlCount - 15} more_`);
+    }
+    lines.push('');
+  }
+
+  if (report.securityTxt) {
+    appendixHeader(lines, 'security.txt');
+    const s = report.securityTxt;
+    if (s.error) {
+      lines.push(`security.txt could not be read: ${s.error}`);
+    } else if (!s.found) {
+      lines.push('No security.txt file was found.');
+    } else {
+      lines.push(`- **URL:** ${escMd(s.url ?? 'n/a')}`);
+      lines.push(`- **Contacts:** ${s.contacts.length > 0 ? s.contacts.map(escMd).join(', ') : 'none'}`);
+      if (s.expires) lines.push(`- **Expires:** ${escMd(s.expires)}`);
+      if (s.policy) lines.push(`- **Policy:** ${escMd(s.policy)}`);
+      if (s.encryption) lines.push(`- **Encryption:** ${escMd(s.encryption)}`);
+      if (s.preferredLanguages) lines.push(`- **Preferred languages:** ${escMd(s.preferredLanguages)}`);
+    }
+    lines.push('');
+  }
+
+  if (report.pageRecon) {
+    appendixHeader(lines, 'Page Metadata & Assets');
+    const p = report.pageRecon;
+    if (p.error) {
+      lines.push(`Page analysis could not be completed: ${p.error}`);
+    } else {
+      const m = p.metadata;
+      lines.push(`- **URL:** ${escMd(p.finalUrl ?? p.url)}`);
+      lines.push(`- **Title:** ${m.title ? escMd(m.title) : 'n/a'}`);
+      if (m.description) lines.push(`- **Description:** ${escMd(m.description)}`);
+      if (m.canonical) lines.push(`- **Canonical:** ${escMd(m.canonical)}`);
+      if (m.language) lines.push(`- **Language:** ${escMd(m.language)}`);
+      if (m.generator) lines.push(`- **Generator:** ${escMd(m.generator)}`);
+      if (Object.keys(m.og).length > 0) lines.push(`- **Open Graph:** ${Object.entries(m.og).map(([k, v]) => `${k}=${escMd(v)}`).join('; ')}`);
+      if (Object.keys(m.twitter).length > 0) lines.push(`- **Twitter:** ${Object.entries(m.twitter).map(([k, v]) => `${k}=${escMd(v)}`).join('; ')}`);
+      lines.push(`- **Links:** ${p.links.total} total (${p.links.internal} internal, ${p.links.external} external)`);
+      if (p.thirdParties.length > 0) {
+        lines.push('- **Third-party hosts:**');
+        for (const t of p.thirdParties.slice(0, 15)) lines.push(`  - ${escMd(t.host)} (${t.category}, ${t.count} resource(s))`);
+      }
+      if (p.mixedContent.length > 0) {
+        lines.push(`- **Mixed content:** ${p.mixedContent.length} resource(s)`);
+        for (const item of p.mixedContent.slice(0, 10)) lines.push(`  - ${item.kind}: ${escMd(item.url)}`);
+      }
+      if (p.missingSri.length > 0) {
+        lines.push(`- **Missing SRI:** ${p.missingSri.length} resource(s)`);
+        for (const item of p.missingSri.slice(0, 10)) lines.push(`  - ${item.kind}: ${escMd(item.url)}`);
+      }
+    }
+    lines.push('');
+  }
+
+  if (report.headerPosture) {
+    appendixHeader(lines, 'HTTP Security Posture');
+    const h = report.headerPosture;
+    if (h.error) {
+      lines.push(`Header posture analysis could not be completed: ${h.error}`);
+    } else {
+      lines.push(`- **HSTS:** ${h.hsts.present ? `${h.hsts.value ?? 'present'} (max-age ${h.hsts.maxAge ?? 'n/a'}${h.hsts.includeSubDomains ? ', includeSubDomains' : ''}${h.hsts.preload ? ', preload' : ''})` : 'not set'}`);
+      if (h.csp) {
+        const weaknesses = [h.csp.reportOnly ? 'report-only' : null, h.csp.unsafeInline ? 'unsafe-inline' : null, h.csp.unsafeEval ? 'unsafe-eval' : null, h.csp.wildcard ? 'wildcard' : null].filter(Boolean);
+        lines.push(`- **CSP:** ${h.csp.reportOnly ? 'report-only' : 'enforced'}${weaknesses.length > 0 ? ` (${weaknesses.join(', ')})` : ''}`);
+      } else {
+        lines.push('- **CSP:** not set');
+      }
+      lines.push(`- **ALPN:** ${h.alpnProtocol ?? 'n/a'}${h.httpVersionHint ? ` (${h.httpVersionHint})` : ''}`);
+      if (h.cookies.length > 0) {
+        lines.push('| Cookie | Secure | HttpOnly | SameSite |');
+        lines.push('| --- | --- | --- | --- |');
+        for (const c of h.cookies) lines.push(`| ${escMd(c.name)} | ${c.secure} | ${c.httpOnly} | ${escMd(c.sameSite ?? 'n/a')} |`);
+      }
+    }
+    lines.push('');
+  }
+
+  // Domain hardening
+  if (report.dnsHardening) {
+    appendixHeader(lines, 'DNS & Email Hardening');
+    const d = report.dnsHardening;
+    if (d.error) {
+      lines.push(`DNS hardening checks could not be completed: ${d.error}`);
+    } else {
+      lines.push(`- **CAA:** ${d.caa.length > 0 ? d.caa.map((c) => `${c.tag}=${escMd(c.value)}`).join(', ') : 'none'}`);
+      if (d.soa) lines.push(`- **SOA:** ${escMd(d.soa.ns)} (serial ${d.soa.serial})`);
+      if (d.nsAddresses.length > 0) lines.push(`- **Nameserver addresses:** ${d.nsAddresses.map((n) => `${escMd(n.ns)} [${n.addresses.join(', ')}]`).join('; ')}`);
+      if (d.srv.length > 0) lines.push(`- **SRV:** ${d.srv.map((s) => `${s.name} -> ${escMd(s.target)}:${s.port}`).join('; ')}`);
+      if (d.dmarc) {
+        lines.push(`- **DMARC:** p=${d.dmarc.policy ?? 'n/a'}${d.dmarc.pct !== null ? `; pct=${d.dmarc.pct}` : ''}${d.dmarc.rua.length > 0 ? `; rua=${d.dmarc.rua.map(escMd).join(',')}` : ''}`);
+      } else {
+        lines.push('- **DMARC:** none');
+      }
+      lines.push(`- **DKIM selectors found:** ${d.dkim.filter((k) => k.found && !k.revoked).map((k) => k.selector).join(', ') || 'none'}`);
+      lines.push(`- **BIMI:** ${d.bimi ? escMd(d.bimi) : 'none'}`);
+    }
+    lines.push('');
+  }
+
+  if (report.dnssec) {
+    appendixHeader(lines, 'DNSSEC');
+    const d = report.dnssec;
+    if (d.error) {
+      lines.push(`DNSSEC validation could not be completed: ${d.error}`);
+    } else {
+      lines.push(`- **Signed:** ${d.signed}`);
+      lines.push(`- **Authenticated data (AD):** ${d.ad}`);
+      lines.push(`- **DNSKEY records:** ${d.dnskeyCount}`);
+      lines.push(`- **DS records:** ${d.dsCount}`);
+      if (d.algorithms.length > 0) lines.push(`- **Algorithms:** ${d.algorithms.join(', ')}`);
+    }
+    lines.push('');
+  }
+
+  // Infrastructure intel
+  if (report.ipIntel) {
+    appendixHeader(lines, 'IP, ASN & Edge Infrastructure');
+    const i = report.ipIntel;
+    if (i.error) lines.push(`IP intelligence could not be completed: ${i.error}`);
+    if (i.waf) lines.push(`- **WAF:** ${escMd(i.waf.name)} (${i.waf.evidence.map(escMd).join('; ')})`);
+    if (i.cdn) lines.push(`- **CDN:** ${escMd(i.cdn.name)} (${i.cdn.evidence.map(escMd).join('; ')})`);
+    if (i.ips.length > 0) {
+      lines.push('| IP | PTR | Country | City | ASN | Org |');
+      lines.push('| --- | --- | --- | --- | --- | --- |');
+      for (const ip of i.ips) {
+        lines.push(`| ${escMd(ip.ip)} | ${escMd(ip.ptr ?? 'n/a')} | ${escMd(ip.country ?? 'n/a')} | ${escMd(ip.city ?? 'n/a')} | ${escMd(ip.asn ?? 'n/a')} | ${escMd(ip.org ?? 'n/a')} |`);
+      }
     }
     lines.push('');
   }

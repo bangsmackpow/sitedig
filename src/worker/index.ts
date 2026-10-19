@@ -136,6 +136,16 @@ export function startWorkerServer(opts: { config: ReturnType<typeof getWorkerCon
     }
   }
 
+  function handleJobReport(res: ServerResponse, jobId: string): void {
+    const report = service.getReport(jobId);
+    if (!report) {
+      sendError(res, 410, 'The report is no longer available. Reports expire after the artifact retention window.', 'report_expired');
+      return;
+    }
+    res.setHeader('cache-control', 'no-store');
+    sendJson(res, 200, { report: report.report, expiresAt: report.expiresAt });
+  }
+
   function handleArtifactDownload(res: ServerResponse, jobId: string, format: string): void {
     if (format !== 'markdown' && format !== 'pdf') {
       sendError(res, 400, 'Unsupported artifact format.', 'bad_format');
@@ -212,6 +222,10 @@ export function startWorkerServer(opts: { config: ReturnType<typeof getWorkerCon
       }
       if (segments.length === 3 && segments[0] === 'jobs' && segments[2] === 'cancel' && method === 'POST') {
         handleJobCancel(res, segments[1]);
+        return;
+      }
+      if (segments.length === 3 && segments[0] === 'jobs' && segments[2] === 'report' && method === 'GET') {
+        handleJobReport(res, segments[1]);
         return;
       }
       if (segments.length === 4 && segments[0] === 'jobs' && segments[2] === 'artifacts' && method === 'GET') {

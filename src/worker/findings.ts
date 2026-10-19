@@ -13,6 +13,13 @@ import type {
   TlsObservation,
   ToolName,
   VulnerabilityFinding,
+  CrawlRulesResult,
+  SecurityTxtResult,
+  PageReconResult,
+  HeaderPostureResult,
+  DnsHardeningResult,
+  DnssecResult,
+  IpIntelResult,
 } from '../shared/types';
 import { analyzeEmailPosture } from './email-posture';
 import type { WpscanResult } from './parsers';
@@ -39,6 +46,13 @@ export interface FindingsInput {
   email?: EmailPostureResult | null;
   archivedUrls?: ArchivedUrl[];
   tlsHardening?: TlsHardeningResult | null;
+  crawlRules?: CrawlRulesResult | null;
+  securityTxt?: SecurityTxtResult | null;
+  pageRecon?: PageReconResult | null;
+  headerPosture?: HeaderPostureResult | null;
+  dnsHardening?: DnsHardeningResult | null;
+  dnssec?: DnssecResult | null;
+  ipIntel?: IpIntelResult | null;
   /** Which tools executed successfully during this scan (for conflict notes). */
   toolOk?: Partial<Record<ToolName, boolean>>;
 }
@@ -722,6 +736,331 @@ export function buildFindings(input: FindingsInput): Finding[] {
       playbookKey: 'cve-package',
     };
     findings.push(applyCorroboration(finding, corroborate(supporting)));
+  }
+
+  // --- Web trust posture -----------------------------------------------
+  const posture = input.headerPosture;
+  if (posture && !posture.error) {
+    if (!posture.hsts.present) {
+      findings.push(
+        applyCorroboration(
+          {
+            id: nextId(),
+            category: 'misconfiguration',
+            severity: 'low',
+            title: 'HSTS is not enabled',
+            description: 'The response does not include a Strict-Transport-Security header, so browsers are not instructed to force HTTPS on future visits.',
+            evidence: ['strict-transport-security: missing'],
+            affected: input.pageRecon?.finalUrl ?? `${input.host}${input.path}`,
+            confidence: 'high',
+            verified: true,
+            remediation: 'Enable HSTS after confirming HTTPS is stable, starting with a short max-age and increasing it once verified.',
+            sourceTools: ['header-posture'],
+            playbookKey: 'hsts-missing',
+          },
+          corroborate(['header-posture']),
+        ),
+      );
+    } else if (posture.hsts.maxAge === null || posture.hsts.maxAge < 15_552_000) {
+      findings.push(
+        applyCorroboration(
+          {
+            id: nextId(),
+            category: 'misconfiguration',
+            severity: 'low',
+            title: 'HSTS max-age is weak',
+            description: `HSTS is enabled but ${posture.hsts.maxAge === null ? 'has no parseable max-age' : `uses max-age=${posture.hsts.maxAge}`}. A value of at least 15552000 seconds (180 days) is recommended.`,
+            evidence: [`strict-transport-security: ${posture.hsts.value ?? 'present'}`],
+            affected: input.pageRecon?.finalUrl ?? `${input.host}${input.path}`,
+            confidence: 'high',
+            verified: true,
+            remediation: 'Raise the HSTS max-age to at least 15552000 seconds; add includeSubDomains and preload only once every subdomain supports HTTPS.',
+            sourceTools: ['header-posture'],
+            playbookKey: 'hsts-missing',
+          },
+          corroborate(['header-posture']),
+        ),
+      );
+    }
+
+    if (!posture.csp) {
+      findings.push(
+        applyCorroboration(
+          {
+            id: nextId(),
+            category: 'misconfiguration',
+            severity: 'low',
+            title: 'Content-Security-Policy is not enforced',
+            description: 'No enforcing Content-Security-Policy header was observed. CSP limits the impact of injected scripts and third-party content.',
+            evidence: ['content-security-policy: missing'],
+            affected: input.pageRecon?.finalUrl ?? `${input.host}${input.path}`,
+            confidence: 'high',
+            verified: true,
+            remediation: 'Deploy a CSP starting in report-only mode, then enforce it after reviewing violations.',
+            sourceTools: ['header-posture'],
+            playbookKey: 'csp-weak',
+          },
+          corroborate(['header-posture']),
+        ),
+      );
+    } else if (posture.csp.reportOnly) {
+      findings.push({
+        id: nextId(),
+        category: 'informational',
+        severity: 'informational',
+        title: 'Content-Security-Policy is report-only',
+        description: 'A CSP is present but only in report-only mode, so violations are reported without blocking content.',
+        evidence: ['content-security-policy-report-only: present'],
+        affected: input.pageRecon?.finalUrl ?? `${input.host}${input.path}`,
+        confidence: 'high',
+        verified: true,
+        remediation: 'Review violation reports, then promote the policy to an enforcing Content-Security-Policy header.',
+        sourceTools: ['header-posture'],
+        playbookKey: 'csp-weak',
+      });
+    } else if (
+      posture.csp.unsafeInline ||
+      posture.csp.unsafeEval ||
+      posture.csp.wildcard ||
+      posture.csp.missingObjectSrc ||
+      posture.csp.missingBaseUri
+    ) {
+      const weaknesses = [
+        posture.csp.unsafeInline ? "'unsafe-inline'" : null,
+        posture.csp.unsafeEval ? "'unsafe-eval'" : null,
+        posture.csp.wildcard ? 'wildcard source' : null,
+        posture.csp.missingObjectSrc ? 'missing object-src' : null,
+        posture.csp.missingBaseUri ? 'missing base-uri' : null,
+      ].filter(Boolean);
+      findings.push(
+        applyCorroboration(
+          {
+            id: nextId(),
+            category: 'misconfiguration',
+            severity: 'low',
+            title: 'Content-Security-Policy contains weak directives',
+            description: `The CSP includes ${weaknesses.join(', ')}, which reduces its protection against script injection.`,
+            evidence: weaknesses.map((w) => `csp: ${w}`),
+            affected: input.pageRecon?.finalUrl ?? `${input.host}${input.path}`,
+            confidence: 'high',
+            verified: true,
+            remediation: 'Remove unsafe-inline/unsafe-eval and wildcard sources; use nonces or hashes for inline scripts.',
+            sourceTools: ['header-posture'],
+            playbookKey: 'csp-weak',
+          },
+          corroborate(['header-posture']),
+        ),
+      );
+    }
+
+    const sameSiteMissing = posture.cookies.filter((c) => !c.sameSite && c.name);
+    if (sameSiteMissing.length > 0) {
+      findings.push({
+        id: nextId(),
+        category: 'misconfiguration',
+        severity: 'low',
+        title: 'Cookies without a SameSite attribute',
+        description: `The following cookies do not declare SameSite: ${sameSiteMissing.map((c) => c.name).join(', ')}. Cross-site request forgery exposure depends on browser defaults and the cookie's purpose.`,
+        evidence: sameSiteMissing.map((c) => `cookie:${c.name} samesite:missing`),
+        affected: input.pageRecon?.finalUrl ?? `${input.host}${input.path}`,
+        confidence: 'medium',
+        verified: true,
+        remediation: 'Set SameSite=Lax or Strict on cookies that do not need cross-site use, and SameSite=None combined with Secure where they do.',
+        sourceTools: ['header-posture'],
+        playbookKey: 'insecure-cookie',
+      });
+    }
+    if (!input.httpx) {
+      const insecure = posture.cookies.filter((c) => !c.secure || !c.httpOnly);
+      if (insecure.length > 0) {
+        findings.push({
+          id: nextId(),
+          category: 'misconfiguration',
+          severity: 'medium',
+          title: 'Cookies missing Secure/HttpOnly flags',
+          description: `Cookies were set without the full Secure/HttpOnly protections: ${insecure.map((c) => c.name).join(', ')}.`,
+          evidence: insecure.map((c) => `cookie:${c.name} secure:${c.secure} httponly:${c.httpOnly}`),
+          affected: input.pageRecon?.finalUrl ?? `${input.host}${input.path}`,
+          confidence: 'high',
+          verified: true,
+          remediation: 'Set Secure and HttpOnly on session cookies unless a documented client-side requirement exists.',
+          sourceTools: ['header-posture'],
+          playbookKey: 'insecure-cookie',
+        });
+      }
+    }
+  }
+
+  const page = input.pageRecon;
+  if (page && !page.error) {
+    if (page.mixedContent.length > 0) {
+      const active = page.mixedContent.filter((m) => m.kind === 'script' || m.kind === 'stylesheet' || m.kind === 'iframe');
+      findings.push({
+        id: nextId(),
+        category: 'misconfiguration',
+        severity: active.length > 0 ? 'medium' : 'low',
+        title: 'Mixed content is loaded over HTTP',
+        description: `${page.mixedContent.length} resource(s) are loaded over HTTP from an HTTPS page${active.length > 0 ? `, including ${active.length} active resource(s)` : ''}. Browsers may block these or expose them to tampering.`,
+        evidence: page.mixedContent.slice(0, 10).map((m) => `${m.kind}: ${m.url}`),
+        affected: page.finalUrl ?? page.url,
+        confidence: 'high',
+        verified: true,
+        remediation: 'Serve every asset over HTTPS and update hard-coded http:// URLs.',
+        sourceTools: ['page-recon'],
+        playbookKey: 'mixed-content',
+      });
+    }
+    if (page.missingSri.length > 0) {
+      findings.push({
+        id: nextId(),
+        category: 'misconfiguration',
+        severity: 'low',
+        title: 'Third-party scripts/styles lack Subresource Integrity',
+        description: `${page.missingSri.length} cross-origin script or stylesheet resource(s) do not use an integrity attribute, so a compromised CDN could alter the code.`,
+        evidence: page.missingSri.slice(0, 10).map((m) => `${m.kind}: ${m.url}`),
+        affected: page.finalUrl ?? page.url,
+        confidence: 'high',
+        verified: true,
+        remediation: 'Add integrity and crossorigin attributes to third-party scripts/styles where the provider supports SRI.',
+        sourceTools: ['page-recon'],
+        playbookKey: 'missing-sri',
+      });
+    }
+  }
+
+  const crawl = input.crawlRules;
+  if (crawl && crawl.robots.found && crawl.robots.sensitiveDisallows.length > 0) {
+    findings.push({
+      id: nextId(),
+      category: 'exposure',
+      severity: 'informational',
+      title: 'robots.txt discloses sensitive-looking paths',
+      description: `robots.txt disallows paths that suggest administrative or sensitive areas: ${crawl.robots.sensitiveDisallows.slice(0, 8).join(', ')}.`,
+      evidence: crawl.robots.sensitiveDisallows.slice(0, 10).map((p) => `disallow: ${p}`),
+      affected: `${input.host}/robots.txt`,
+      confidence: 'medium',
+      verified: true,
+      remediation: 'Do not rely on robots.txt for access control. Protect sensitive paths with authentication and authorization.',
+      sourceTools: ['crawl-rules'],
+      playbookKey: 'robots-disclosure',
+    });
+  }
+
+  const security = input.securityTxt;
+  if (security?.found === false && !security.error) {
+    findings.push({
+      id: nextId(),
+      category: 'informational',
+      severity: 'informational',
+      title: 'No security.txt vulnerability disclosure policy',
+      description: 'No RFC 9116 security.txt file was found, so researchers have no published channel for reporting vulnerabilities.',
+      evidence: ['security.txt: not found'],
+      affected: `${input.host}/.well-known/security.txt`,
+      confidence: 'high',
+      verified: true,
+      remediation: 'Publish /.well-known/security.txt with a Contact and Expires field.',
+      sourceTools: ['security-txt'],
+      playbookKey: 'security-txt',
+    });
+  }
+
+  // --- Domain hardening -------------------------------------------------
+  const dnsHardening = input.dnsHardening;
+  if (dnsHardening && !dnsHardening.error) {
+    if (dnsHardening.caa.length === 0) {
+      findings.push({
+        id: nextId(),
+        category: 'misconfiguration',
+        severity: 'low',
+        title: 'No CAA records published',
+        description: 'The domain does not restrict which certificate authorities may issue certificates for it.',
+        evidence: ['caa: missing'],
+        affected: dnsHardening.domain,
+        confidence: 'high',
+        verified: true,
+        remediation: 'Publish CAA records listing your certificate authority (and an iodef contact).',
+        sourceTools: ['dns-hardening'],
+        playbookKey: 'caa-missing',
+      });
+    }
+    const dmarc = dnsHardening.dmarc;
+    if (dmarc?.present && (!input.email || input.email.error) && dmarc.policy === 'none') {
+      findings.push({
+        id: nextId(),
+        category: 'misconfiguration',
+        severity: 'medium',
+        title: 'DMARC policy is monitoring-only (p=none)',
+        description: 'A DMARC record exists but the enforcement policy is p=none, so spoofed mail is still delivered.',
+        evidence: ['dmarc: p=none'],
+        affected: dnsHardening.domain,
+        confidence: 'high',
+        verified: true,
+        remediation: 'Review aggregate reports, then raise the policy to quarantine and eventually reject.',
+        sourceTools: ['dns-hardening'],
+        playbookKey: 'dmarc-none',
+      });
+    }
+    if (dmarc?.present && !dnsHardening.dkim.some((d) => d.found && !d.revoked)) {
+      findings.push({
+        id: nextId(),
+        category: 'misconfiguration',
+        severity: 'medium',
+        title: 'No DKIM key found for common selectors',
+        description: `DMARC is published but no DKIM key was found on common selectors (${dnsHardening.dkim.map((d) => d.selector).join(', ')}). This may mean a non-standard selector is in use.`,
+        evidence: dnsHardening.dkim.slice(0, 8).map((d) => `selector ${d.selector}: ${d.found ? 'found' : 'not found'}`),
+        affected: dnsHardening.domain,
+        confidence: 'medium',
+        verified: true,
+        remediation: 'Confirm which DKIM selector your mail provider uses and publish the corresponding public key.',
+        sourceTools: ['dns-hardening'],
+        playbookKey: 'dkim-missing',
+      });
+    }
+  }
+
+  const dnssec = input.dnssec;
+  if (dnssec && !dnssec.error && !dnssec.signed) {
+    findings.push({
+      id: nextId(),
+      category: 'misconfiguration',
+      severity: 'low',
+      title: 'DNSSEC is not enabled',
+      description: 'No DNSKEY records were returned for the domain, so DNS answers are not cryptographically signed.',
+      evidence: ['dnskey: none', 'ds: none'],
+      affected: input.host,
+      confidence: 'high',
+      verified: true,
+      remediation: 'Enable DNSSEC at the registrar and DNS provider, then publish the DS record.',
+      sourceTools: ['dnssec'],
+      playbookKey: 'dnssec-missing',
+    });
+  }
+
+  // --- Infrastructure intel --------------------------------------------
+  const intel = input.ipIntel;
+  if (intel && !intel.error && (intel.waf || intel.cdn || intel.ips.length > 0)) {
+    const parts: string[] = [];
+    if (intel.waf) parts.push(`WAF: ${intel.waf.name}`);
+    if (intel.cdn) parts.push(`CDN: ${intel.cdn.name}`);
+    const first = intel.ips[0];
+    if (first?.asn || first?.org) parts.push(`network: ${[first.asn, first.org].filter(Boolean).join(' ')}`);
+    findings.push({
+      id: nextId(),
+      category: 'informational',
+      severity: 'informational',
+      title: 'Hosting and edge infrastructure identified',
+      description: parts.length > 0 ? `The target appears to be served through ${parts.join('; ')}.` : 'Hosting metadata was collected for the resolved IP addresses.',
+      evidence: [
+        ...(intel.waf ? intel.waf.evidence.map((e) => `waf: ${e}`) : []),
+        ...(intel.cdn ? intel.cdn.evidence.map((e) => `cdn: ${e}`) : []),
+        ...intel.ips.slice(0, 2).map((ip) => `ip: ${ip.ip}${ip.ptr ? ` (${ip.ptr})` : ''}${ip.asn ? ` ${ip.asn}` : ''}`),
+      ],
+      affected: input.host,
+      confidence: 'medium',
+      verified: false,
+      remediation: null,
+      sourceTools: ['ip-intel'],
+    });
   }
 
   return findings;

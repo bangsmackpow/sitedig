@@ -43,7 +43,9 @@ Run `npm run lint`, `npm run typecheck`, and `npm test` before declaring work co
 - **MFA** (`src/server/auth/mfa.ts`): email OTP + TOTP (RFC 6238, `node:crypto`) + recovery codes. Login issues a challenge and only creates a session after verification (`/api/auth/mfa/verify`). Enrollment via `/api/account/mfa`.
 - **Scan history** (`src/server/scans.ts`): the worker POSTs a report-free summary to `POST /api/internal/scan-events` (bearer token); the web upserts `scans`/`scan_tools`. UIs: `/history` (user) and `/admin/scans` (admin analytics + CSV).
 - **Digest** (`src/server/digest.ts`, `src/instrumentation.ts`): hourly in-process tick sends the daily admin digest and sweeps scan history.
+- **Report viewer** (`src/app/scan/[id]/page.tsx`, `GET /api/scan/[id]/report`): renders the worker's in-memory `ReportModel` while the artifact TTL is active. Ownership is checked against the `scans` table; reports are still never persisted.
+- **Trust modules** (`web-trust`, `domain-hardening`, `infra-intel`): in-process checks in `src/worker/` wired through `expandModules` in `src/shared/profiles.ts`. New outbound HTTP must use `src/worker/safe-fetch.ts` (per-hop DNS validation, redirect caps, body caps).
 
 ## Environment
 
-`.env.example` is the authoritative list. New vars: `EMAIL_PROVIDER`, `RESEND_API_KEY`, `EMAIL_FROM`, `WEB_BASE_URL` (worker), `SCAN_HISTORY_RETENTION_DAYS`, `ADMIN_DIGEST_ENABLED`, `ADMIN_DIGEST_HOUR`, `ADMIN_DIGEST_RECIPIENTS`. Keep `docker-compose.yml`, the README config table, and `.env.example` in sync when adding config.
+`.env.example` is the authoritative list. New vars: `EMAIL_PROVIDER`, `RESEND_API_KEY`, `EMAIL_FROM`, `WEB_BASE_URL` (worker), `SCAN_HISTORY_RETENTION_DAYS`, `ADMIN_DIGEST_ENABLED`, `ADMIN_DIGEST_HOUR`, `ADMIN_DIGEST_RECIPIENTS`, `DOH_ENDPOINT`, `IP_INTEL_ENDPOINT`. Keep `docker-compose.yml`, the README config table, and `.env.example` in sync when adding config.

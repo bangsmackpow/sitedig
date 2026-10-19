@@ -79,6 +79,13 @@ export function toolLabel(tool: string): string {
     case 'feroxbuster': return 'Feroxbuster';
     case 'waybackurls': return 'Wayback Machine';
     case 'osv': return 'OSV';
+    case 'crawl-rules': return 'Crawl rules';
+    case 'security-txt': return 'security.txt';
+    case 'page-recon': return 'Page analysis';
+    case 'header-posture': return 'HTTP posture';
+    case 'dns-hardening': return 'DNS hardening';
+    case 'dnssec': return 'DNSSEC';
+    case 'ip-intel': return 'IP intel';
     default: return tool;
   }
 }

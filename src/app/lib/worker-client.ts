@@ -1,5 +1,5 @@
 import { getWebConfig } from '@/shared/config';
-import type { ModuleId, PublicJobView, ScanProfile } from '@/shared/types';
+import type { ModuleId, PublicJobView, ReportModel, ScanProfile } from '@/shared/types';
 
 export interface CreateScanInput {
   target: string;
@@ -101,6 +101,15 @@ export async function getJobStatus(jobId: string): Promise<PublicJobView> {
   if (res.ok) {
     const data = (await res.json()) as { job: PublicJobView };
     return data.job;
+  }
+  const err = await readError(res);
+  throw new WorkerClientError(err.message, res.status, err.code);
+}
+
+export async function getJobReport(jobId: string): Promise<{ report: ReportModel; expiresAt: string }> {
+  const res = await request(`/jobs/${encodeURIComponent(jobId)}/report`);
+  if (res.ok) {
+    return (await res.json()) as { report: ReportModel; expiresAt: string };
   }
   const err = await readError(res);
   throw new WorkerClientError(err.message, res.status, err.code);

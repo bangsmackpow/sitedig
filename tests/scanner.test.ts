@@ -24,10 +24,14 @@ function makeConfig(overrides: Partial<WorkerConfig> = {}): WorkerConfig {
     artifactDir: fs.mkdtempSync(path.join(os.tmpdir(), 'sitedig-test-')),
     artifactTtlMinutes: 30,
     scannerBinDir: BIN,
+    webBaseUrl: '',
     enabledModules: new Set<ModuleId>(),
     wpscanApiToken: '',
     nucleiTemplates: [],
+    nucleiTemplatesDir: '/opt/nuclei-templates',
     wordlistPath: '/opt/sitedig/wordlists/common.txt',
+    dohEndpoint: 'https://cloudflare-dns.com/dns-query',
+    ipIntelEndpoint: 'https://ipwho.is',
     ...overrides,
   };
 }
@@ -229,6 +233,97 @@ describe('ScannerService integration', () => {
     expect(done.report?.email?.dmarcRecords.length).toBe(0);
     expect(done.report?.findings.some((f) => f.title.includes('DMARC'))).toBe(true);
     expect(done.report?.findings.some((f) => f.title.includes('STARTTLS'))).toBe(true);
+    svc.stop();
+  });
+
+  it('runs web-trust, domain-hardening, and infra-intel modules end-to-end', async () => {
+    const cfg = makeConfig({ enabledModules: new Set<ModuleId>(['web-trust', 'domain-hardening', 'infra-intel']) });
+    const svc = new ScannerService(cfg, createLogger({ LOG_LEVEL: 'silent' }), {
+      resolver: publicResolver(),
+      httpCheck: fakeHttp,
+      tlsCheck: async () => ({ ...(await fakeTls()), alpnProtocol: 'h2' }),
+      crawlRules: async () => ({
+        robots: {
+          found: true,
+          url: 'https://example.com/robots.txt',
+          status: 200,
+          groups: [{ userAgents: ['*'], allow: [], disallow: ['/admin'] }],
+          sitemaps: [],
+          aiBots: [{ name: 'GPTBot', allowed: false }],
+          sensitiveDisallows: ['/admin'],
+          error: null,
+        },
+        sitemap: { found: true, urls: ['https://example.com/a'], urlCount: 1, sitemapCount: 1, error: null },
+        error: null,
+      }),
+      securityTxt: async () => ({
+        found: true,
+        url: 'https://example.com/.well-known/security.txt',
+        status: 200,
+        contacts: ['mailto:security@example.com'],
+        expires: null,
+        policy: null,
+        encryption: null,
+        acknowledgments: null,
+        preferredLanguages: null,
+        error: null,
+      }),
+      pageRecon: async () => ({
+        result: {
+          url: 'https://example.com/',
+          status: 200,
+          finalUrl: 'https://example.com/',
+          contentType: 'text/html',
+          metadata: { title: 'Example', description: null, canonical: null, language: 'en', generator: null, og: {}, twitter: {} },
+          links: { internal: 1, external: 1, total: 2, samples: [] },
+          mixedContent: [{ url: 'http://cdn.example.net/a.js', kind: 'script' }],
+          missingSri: [{ url: 'https://cdn.example.net/a.js', kind: 'script' }],
+          thirdParties: [{ host: 'cdn.example.net', category: 'other', count: 1 }],
+          error: null,
+        },
+        headers: {
+          'strict-transport-security': 'max-age=300',
+          'content-security-policy': "default-src * 'unsafe-inline'",
+        },
+        setCookies: ['sid=abc; Secure; HttpOnly; SameSite=Lax'],
+      }),
+      dnsHardening: async () => ({
+        domain: 'example.com',
+        caa: [],
+        soa: null,
+        srv: [],
+        nsAddresses: [],
+        dkim: [{ selector: 'default', found: false, keyType: null, revoked: false }],
+        bimi: null,
+        dmarc: { present: true, policy: 'none', subdomainPolicy: null, pct: 100, rua: [], ruf: [], alignmentDkim: null, alignmentSpf: null },
+        error: null,
+      }),
+      dnssec: async () => ({ signed: false, ad: false, dnskeyCount: 0, dsCount: 0, algorithms: [], error: null }),
+      ipIntel: async () => ({
+        ips: [{ ip: '93.184.216.34', ptr: null, country: 'US', region: 'CA', city: 'Los Angeles', asn: 'AS15133', org: 'Example', isp: 'Example' }],
+        waf: { name: 'Cloudflare', evidence: ['header: cf-ray'] },
+        cdn: null,
+        error: null,
+      }),
+      downloadJs: async () => null,
+    });
+    svc.start();
+    const job = await svc.createJob({ target: 'example.com', profile: 'quick', modules: ['web-trust', 'domain-hardening', 'infra-intel'] });
+    await waitFor(() => svc.getJob(job.id)?.status === 'completed');
+    const done = svc.getJob(job.id)!;
+    expect(done.status).toBe('completed');
+    expect(done.report?.crawlRules?.sitemap.urlCount).toBe(1);
+    expect(done.report?.securityTxt?.found).toBe(true);
+    expect(done.report?.pageRecon?.metadata.title).toBe('Example');
+    expect(done.report?.headerPosture?.hsts.maxAge).toBe(300);
+    expect(done.report?.headerPosture?.alpnProtocol).toBe('h2');
+    expect(done.report?.dnsHardening?.dmarc?.policy).toBe('none');
+    expect(done.report?.dnssec?.signed).toBe(false);
+    expect(done.report?.ipIntel?.waf?.name).toBe('Cloudflare');
+    expect(done.report?.findings.some((f) => f.title.includes('HSTS'))).toBe(true);
+    expect(done.report?.findings.some((f) => f.title.includes('DNSSEC'))).toBe(true);
+    expect(done.report?.findings.some((f) => f.title.includes('CAA'))).toBe(true);
+    expect(svc.getReport(job.id)?.report.findings.length).toBeGreaterThan(0);
     svc.stop();
   });
 

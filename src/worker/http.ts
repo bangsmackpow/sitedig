@@ -4,7 +4,6 @@ import {
   DEFAULT_USER_AGENT,
   HTTP_CHECK_TIMEOUT_MS,
   MAX_HTTP_REDIRECTS,
-  SECURITY_HEADERS,
   TLS_CHECK_TIMEOUT_MS,
 } from '../shared/constants';
 import { formatHostForUrl } from '../shared/net';
@@ -16,8 +15,6 @@ export interface HttpCheckDeps {
   followRedirects: boolean;
   resolver?: DnsResolver;
 }
-
-const HEADER_KEYS = ['server', 'x-powered-by', ...SECURITY_HEADERS];
 
 export async function httpCheck(target: NormalizedTarget, deps: HttpCheckDeps): Promise<HttpObservation> {
   const userAgent = deps.userAgent || DEFAULT_USER_AGENT;
@@ -117,10 +114,16 @@ export async function httpCheck(target: NormalizedTarget, deps: HttpCheckDeps): 
 
 function collectHeaders(headers: Headers): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const key of HEADER_KEYS) {
-    const value = headers.get(key);
-    if (value) out[key] = value;
-  }
+  let count = 0;
+  headers.forEach((value, key) => {
+    if (count >= 200) return;
+    const lower = key.toLowerCase();
+    // Never persist cookie values in the report model; the header-posture
+    // check records cookie names/flags only.
+    if (lower === 'set-cookie') return;
+    out[lower] = value.slice(0, 2000);
+    count += 1;
+  });
   return out;
 }
 
@@ -133,6 +136,7 @@ export async function tlsCheck(target: NormalizedTarget): Promise<TlsObservation
       port,
       servername,
       rejectUnauthorized: false,
+      ALPNProtocols: ['h2', 'http/1.1'],
       timeout: TLS_CHECK_TIMEOUT_MS,
     });
 
@@ -166,6 +170,7 @@ export async function tlsCheck(target: NormalizedTarget): Promise<TlsObservation
           validTo: cert.valid_to ?? null,
           daysRemaining,
           selfSigned: Boolean(subjectCn && issuerCn && subjectCn === issuerCn),
+          alpnProtocol: socket.alpnProtocol || null,
           error: null,
         });
       } catch (e) {

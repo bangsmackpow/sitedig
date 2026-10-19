@@ -53,6 +53,15 @@ export class ScanQueue {
     return this.registry.has(id);
   }
 
+  evictFinishedBefore(cutoffMs: number): void {
+    for (const [id, job] of this.registry) {
+      if (job.status === 'running' || job.status === 'queued') continue;
+      if (job.finishedAt && Date.parse(job.finishedAt) < cutoffMs) {
+        this.registry.delete(id);
+      }
+    }
+  }
+
   /** Cancel a job that has not started yet. */
   cancelQueued(id: string): boolean {
     if (!this.pending.includes(id)) return false;

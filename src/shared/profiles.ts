@@ -161,6 +161,19 @@ export function expandModules(modules: ModuleId[], target: NormalizedTarget, opt
       case 'remediation-playbook':
         // Report-only module: appends the resolution playbook. No tool steps.
         break;
+      case 'web-trust':
+        steps.push({ tool: 'crawl-rules', label: 'robots.txt & sitemap analysis', args: [target.host] });
+        steps.push({ tool: 'security-txt', label: 'security.txt discovery', args: [target.host] });
+        steps.push({ tool: 'page-recon', label: 'Page metadata & asset analysis', args: [webUrl] });
+        steps.push({ tool: 'header-posture', label: 'HTTP security posture grading', args: [] });
+        break;
+      case 'domain-hardening':
+        steps.push({ tool: 'dns-hardening', label: 'DNS & email hardening records', args: [target.host] });
+        steps.push({ tool: 'dnssec', label: 'DNSSEC validation', args: [target.host] });
+        break;
+      case 'infra-intel':
+        steps.push({ tool: 'ip-intel', label: 'IP, ASN, WAF & CDN intelligence', args: [target.host] });
+        break;
     }
   }
   return steps;
@@ -205,6 +218,13 @@ export function assertApprovedArgs(tool: ScanTool, args: string[]): void {
       case 'rdap':
       case 'email':
       case 'osv':
+      case 'crawl-rules':
+      case 'security-txt':
+      case 'page-recon':
+      case 'header-posture':
+      case 'dns-hardening':
+      case 'dnssec':
+      case 'ip-intel':
         return { exact: [] };
     }
   })();

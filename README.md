@@ -12,7 +12,7 @@ Built with Next.js + a dedicated TypeScript scanner worker. Ships as a single pu
 
 ## What it does
 
-SiteDig executes a bounded, TCP-only reconnaissance scan of a domain, hostname, IPv4, IPv6, or full URL using safe, detection-oriented Linux tools — `nmap` (TCP connect), `whatweb`, `curl`/HTTP header inspection, in-process TLS certificate inspection, and conditional local-only `wpscan`. Optional premium add-on modules add passive subdomain discovery, curated nuclei/retire.js/httpx checks, testssl.sh hardening, content discovery with Wayback Machine URL history, email/DNS security posture (SPF/DMARC/MTA-STS/MX STARTTLS), OSV CVE enrichment, and a client-ready Remediation Playbook. Each scan produces a **dual-format report** (client-facing executive summary + technical appendix) that you download as a **PDF** or **Markdown** file.
+SiteDig executes a bounded, TCP-only reconnaissance scan of a domain, hostname, IPv4, IPv6, or full URL using safe, detection-oriented Linux tools — `nmap` (TCP connect), `whatweb`, `curl`/HTTP header inspection, in-process TLS certificate inspection, and conditional local-only `wpscan`. Optional premium add-on modules add passive subdomain discovery, curated nuclei/retire.js/httpx checks, testssl.sh hardening, content discovery with Wayback Machine URL history, email/DNS security posture (SPF/DMARC/MTA-STS/MX STARTTLS), OSV CVE enrichment, web trust/crawl analysis, DNS/email hardening, infrastructure intel, and a client-ready Remediation Playbook. Each scan produces a **dual-format report** (client-facing executive summary + technical appendix) that you can view in the browser and download as a **PDF** or **Markdown** file.
 
 Findings are attributed to the tools that observed them and cross-validated: where two or more independent tools agree, the finding is marked **confirmed**; where tools disagree, the report says so explicitly so nothing is acted on blindly. Each finding is also tagged with the tools that produced its evidence in a **Cross-Tool Validation Matrix**.
 
@@ -149,6 +149,8 @@ services:
       ALLOW_INTERNAL_TARGETS: "false"
       ARTIFACT_TTL_MINUTES: ${ARTIFACT_TTL_MINUTES:-30}
       ENABLED_MODULES: ${ENABLED_MODULES:-}
+      DOH_ENDPOINT: ${DOH_ENDPOINT:-https://cloudflare-dns.com/dns-query}
+      IP_INTEL_ENDPOINT: ${IP_INTEL_ENDPOINT:-https://ipwho.is}
       WPSCAN_API_TOKEN: ${WPSCAN_API_TOKEN:-}
       NUCLEI_TEMPLATES: ${NUCLEI_TEMPLATES:-http/technologies/tech-detect.yaml,http/exposures/configs/git-config.yaml,ssl/tls-version.yaml,ssl/deprecated-tls.yaml,ssl/self-signed-ssl.yaml,ssl/expired-ssl.yaml,ssl/weak-cipher-suites.yaml}
       NUCLEI_TEMPLATES_DIR: ${NUCLEI_TEMPLATES_DIR:-/opt/nuclei-templates}
@@ -228,6 +230,8 @@ docker compose pull && docker compose up -d
 | `ADMIN_DIGEST_ENABLED` / `ADMIN_DIGEST_HOUR` / `ADMIN_DIGEST_RECIPIENTS` | web | `false` / `8` / *(empty)* | Daily admin digest of signups + scan activity (UTC hour; empty recipients = all admins) |
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_ID`, `STRIPE_PORTAL_RETURN_URL` | web | *(empty)* | Stripe billing (hosted mode). `portal_return_url` optional, defaults to `/account` |
 | `ENABLED_MODULES` | both | *(empty)* | Comma-separated paid module ids to unlock (deployment ceiling) |
+| `DOH_ENDPOINT` | worker | `https://cloudflare-dns.com/dns-query` | DNS-over-HTTPS JSON endpoint used for DNSSEC checks |
+| `IP_INTEL_ENDPOINT` | worker | `https://ipwho.is` | No-key IP geolocation endpoint used by `infra-intel` |
 | `WPSCAN_API_TOKEN` | worker | *(empty)* | WPScan API token for plugin/theme vulnerability data |
 | `NUCLEI_TEMPLATES` | worker | `http/technologies/tech-detect.yaml,http/exposures/configs/git-config.yaml,ssl/tls-version.yaml,ssl/deprecated-tls.yaml,ssl/self-signed-ssl.yaml,ssl/expired-ssl.yaml,ssl/weak-cipher-suites.yaml` | Nuclei template allowlist |
 | `NUCLEI_TEMPLATES_DIR` | worker | `/opt/nuclei-templates` | Nuclei template directory |
@@ -267,6 +271,9 @@ SiteDig ships a set of **Premium add-on modules**. A user must hold an active Pr
 | Content Discovery | `content-discovery` | feroxbuster, waybackurls | Rate-limited directory/path discovery plus Wayback Machine URL history with live re-verification of sensitive paths |
 | CVE Context | `cve-context` | OSV API | Enrich detected technologies with known-CVE counts |
 | Remediation Playbook | `remediation-playbook` | *(report-only)* | Appends per-finding fix plans with exact nginx/Apache commands, verification checks, owner/effort, references, and a prioritized 30-day roadmap |
+| Web Trust & Crawl | `web-trust` | crawl-rules, security-txt, page-recon, header-posture | robots.txt (including AI-crawler rules), sitemap, security.txt, page metadata/social tags, linked pages, mixed content/SRI, third-party and tracker inventory, plus HSTS/CSP/cookie/ALPN grading |
+| Domain & Email Hardening | `domain-hardening` | dns-hardening, dnssec | CAA, SOA, SRV, resolver addresses, DNSSEC (Cloudflare DoH), DKIM selector discovery, BIMI, and detailed DMARC grading |
+| Infrastructure Intel | `infra-intel` | ip-intel | IP geolocation, ASN/network ownership, reverse DNS, and WAF/CDN fingerprinting from response headers and cookies |
 
 Each module's tools are guarded by argument allowlists (`assertApprovedArgs`), per-tool timeouts, and non-destructive template/wordlist policies. The vulnerability-scan module runs **only** the curated `NUCLEI_TEMPLATES` allowlist, and `waybackurls` runs with `--no-subs` so live re-verification never leaves the exact target host.
 
@@ -316,7 +323,8 @@ Each report is organized as **Executive Summary → Findings → Cross-Tool Vali
 - Findings with category (`Exposure`, `Misconfiguration`, `Outdated Technology`, `WordPress Finding`, `Vulnerability`, `Informational`), severity, evidence grouped as "what the tools saw", confidence, and a cross-tool validation line
 - **Cross-Tool Validation Matrix** — a finding × tool grid showing which tools independently observed (✓), disagreed (✗), or did not apply; multi-source agreement raises confidence and disagreement is flagged for verification
 - **How to Resolve (Remediation Playbook)** — with the Premium `remediation-playbook` module: per-finding steps with exact nginx/Apache commands, verification commands, owner/effort, references, and a prioritized 30-day roadmap. Without the module, a one-line remediation plus a Premium teaser is shown
-- **Technical Appendix** — one subsection per tool: Nmap ports/services, HTTP header inspection, httpx surface validation, TLS certificate inspection, testssl.sh, WhatWeb technologies, WordPress/WPScan, Subfinder subdomains, DNS records, email/DNS posture, RDAP/WHOIS, Nuclei/Retire vulnerabilities, Feroxbuster paths, Wayback URL history, and OSV CVE context
+- - **Interactive report viewer** - authenticated owners (and admins) can view the report at `/scan/<id>` while the in-memory TTL is active. Reports are never persisted; PDF/Markdown downloads remain single-use
+- **Technical Appendix** — one subsection per tool: Nmap ports/services, HTTP header inspection, httpx surface validation, TLS certificate inspection, testssl.sh, WhatWeb technologies, WordPress/WPScan, Subfinder subdomains, DNS records, email/DNS posture, RDAP/WHOIS, Nuclei/Retire vulnerabilities, Feroxbuster paths, Wayback URL history, OSV CVE context, crawl rules/sitemap, security.txt, page metadata/assets, HTTP security posture, DNS/email hardening, DNSSEC, and IP/ASN/edge infrastructure
 - Sanitized tool execution summary and explicit limitations
 
 Severity ratings are **inferred** from observed evidence and clearly flagged as such; the report states that this is a detection-oriented reconnaissance report, not a vulnerability assessment. Archived credential-bearing URLs are stored with their secret values masked — the value is never written into a report.
@@ -363,8 +371,8 @@ Test scanners are Node stubs under `tests/fixtures/stub-bin/` — the test suite
 ## Known limitations
 
 - Detection-oriented only — no exploit validation or vulnerability confirmation.
-- External data sources are limited to the OSV vulnerability database and, with the relevant modules, the Wayback Machine, WHOIS/RDAP, and the optional WPScan API token. Shodan/Censys and other external vulnerability APIs are not integrated.
-- The `asset-discovery` module opens one `EHLO` connection to the domain's primary MX (after validating it resolves to a public address) to test STARTTLS; no mail is ever sent. The `content-discovery` module queries the Wayback Machine for the target host.
+- External data sources are limited to the OSV vulnerability database and, with the relevant modules, the Wayback Machine, WHOIS/RDAP, Cloudflare DNS-over-HTTPS (DNSSEC), a no-key IP geolocation service, and the optional WPScan API token. Shodan/Censys and other external vulnerability APIs are not integrated.
+- The `asset-discovery` module opens one `EHLO` connection to the domain's primary MX (after validating it resolves to a public address) to test STARTTLS; no mail is ever sent. The `content-discovery` module queries the Wayback Machine for the target host. The `web-trust` module fetches only the target origin (robots.txt, sitemap, security.txt and the page itself); it never crawls third-party links. The `domain-hardening` module sends DNS queries to the configured DoH endpoint, and `infra-intel` sends resolved IPs to the configured geolocation endpoint.
 - `npm audit` reports transitive `postcss`/`sharp` advisories from the Next.js 15 toolchain; these are build/runtime-image-optimization dependencies this app does not exercise. Upgrading to Next 16 (a breaking change) resolves them and is a recommended follow-up.
 
 ## Roadmap (explicitly deferred)

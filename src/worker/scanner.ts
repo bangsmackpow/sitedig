@@ -29,10 +29,25 @@ import type {
   CveContextFinding,
   FindingCounts,
   ScanEventPayload,
+  CrawlRulesResult,
+  SecurityTxtResult,
+  PageReconResult,
+  HeaderPostureResult,
+  DnsHardeningResult,
+  DnssecResult,
+  IpIntelResult,
 } from '../shared/types';
 import { assertNoRebinding, defaultResolver, resolveAndValidate, type DnsResolver, type ResolveResult } from './dns';
+import { crawlRulesLookup } from './crawl-rules';
+import { dnsHardeningLookup } from './dns-hardening';
+import { dnssecLookup } from './dnssec';
 import { lookupEmailPosture } from './email-posture';
 import { buildFindings } from './findings';
+import { analyzeHeaderPosture } from './header-posture';
+import { ipIntelLookup } from './ip-intel';
+import { pageReconLookup } from './page-recon';
+import { safeFetchText } from './safe-fetch';
+import { securityTxtLookup } from './security-txt';
 import { httpCheck as defaultHttpCheck, tlsCheck as defaultTlsCheck } from './http';
 import { formatHostForUrl, isIpv4, isIpv6 } from '../shared/net';
 import type { HttpObservation, TlsObservation } from '../shared/types';
@@ -76,6 +91,13 @@ interface Observations {
   httpx: HttpxObservation | null;
   archivedUrls: ArchivedUrl[];
   email: EmailPostureResult | null;
+  crawlRules: CrawlRulesResult | null;
+  securityTxt: SecurityTxtResult | null;
+  pageRecon: PageReconResult | null;
+  headerPosture: HeaderPostureResult | null;
+  dnsHardening: DnsHardeningResult | null;
+  dnssec: DnssecResult | null;
+  ipIntel: IpIntelResult | null;
 }
 
 /**
@@ -177,6 +199,13 @@ export interface ScannerDeps {
   emailPosture?: typeof lookupEmailPosture;
   verifyLive?: (urls: string[], signal: AbortSignal) => Promise<Set<string>>;
   downloadJs?: (job: Job, jsDir: string, controller: AbortController) => Promise<string | null>;
+  fetchText?: typeof safeFetchText;
+  crawlRules?: typeof crawlRulesLookup;
+  securityTxt?: typeof securityTxtLookup;
+  pageRecon?: typeof pageReconLookup;
+  dnsHardening?: typeof dnsHardeningLookup;
+  dnssec?: typeof dnssecLookup;
+  ipIntel?: typeof ipIntelLookup;
 }
 
 const LIMITATIONS = [
@@ -184,7 +213,7 @@ const LIMITATIONS = [
   'Each scan is capped at the configured scan duration and port scope.',
   'CIDR/network-range scanning is not supported.',
   'Detection-oriented reconnaissance only; no exploitation or vulnerability confirmation is performed.',
-  'External data sources are limited to the OSV vulnerability database and (with the relevant modules) the Wayback Machine, WHOIS/RDAP, and the optional WPScan API token; no Shodan/Censys integration.',
+  'External data sources are limited to the OSV vulnerability database and (with the relevant modules) the Wayback Machine, WHOIS/RDAP, Cloudflare DNS-over-HTTPS, an IP geolocation service, and the optional WPScan API token; no Shodan/Censys integration.',
   'Severity ratings are inferred from observed evidence and should be verified against your environment.',
 ];
 
@@ -198,6 +227,13 @@ export class ScannerService {
   private readonly emailImpl: typeof lookupEmailPosture;
   private readonly verifyLiveImpl: NonNullable<ScannerDeps['verifyLive']>;
   private readonly downloadJsImpl: NonNullable<ScannerDeps['downloadJs']>;
+  private readonly fetchTextImpl: NonNullable<ScannerDeps['fetchText']>;
+  private readonly crawlRulesImpl: NonNullable<ScannerDeps['crawlRules']>;
+  private readonly securityTxtImpl: NonNullable<ScannerDeps['securityTxt']>;
+  private readonly pageReconImpl: NonNullable<ScannerDeps['pageRecon']>;
+  private readonly dnsHardeningImpl: NonNullable<ScannerDeps['dnsHardening']>;
+  private readonly dnssecImpl: NonNullable<ScannerDeps['dnssec']>;
+  private readonly ipIntelImpl: NonNullable<ScannerDeps['ipIntel']>;
   private readonly aborts = new Map<string, AbortController>();
   private readonly validatedTargets = new Map<string, ResolveResult>();
   private ttlTimer: NodeJS.Timeout | null = null;
@@ -215,6 +251,37 @@ export class ScannerService {
     this.emailImpl = deps.emailPosture ?? lookupEmailPosture;
     this.verifyLiveImpl = deps.verifyLive ?? defaultVerifyLive;
     this.downloadJsImpl = deps.downloadJs ?? ((job, jsDir, controller) => this.downloadJsForRetire(job, jsDir, controller));
+    this.fetchTextImpl = deps.fetchText ?? safeFetchText;
+    this.crawlRulesImpl =
+      deps.crawlRules ??
+      ((target, opts) =>
+        crawlRulesLookup(target, {
+          resolver: opts?.resolver,
+          userAgent: opts?.userAgent,
+          signal: opts?.signal,
+          fetchText: this.fetchTextImpl,
+        }));
+    this.securityTxtImpl =
+      deps.securityTxt ??
+      ((target, opts) =>
+        securityTxtLookup(target, {
+          resolver: opts?.resolver,
+          userAgent: opts?.userAgent,
+          signal: opts?.signal,
+          fetchText: this.fetchTextImpl,
+        }));
+    this.pageReconImpl =
+      deps.pageRecon ??
+      ((target, opts) =>
+        pageReconLookup(target, {
+          resolver: opts?.resolver,
+          userAgent: opts?.userAgent,
+          signal: opts?.signal,
+          fetchText: this.fetchTextImpl,
+        }));
+    this.dnsHardeningImpl = deps.dnsHardening ?? dnsHardeningLookup;
+    this.dnssecImpl = deps.dnssec ?? dnssecLookup;
+    this.ipIntelImpl = deps.ipIntel ?? ipIntelLookup;
 
     const runnerDeps: RunnerDeps = {
       maxOutputBytes: config.maxToolOutputBytes,
@@ -413,6 +480,15 @@ export class ScannerService {
     return this.queue.get(id);
   }
 
+  /** In-memory report access for the web viewer; expires with the artifact TTL. */
+  getReport(id: string): { report: ReportModel; expiresAt: string } | null {
+    const job = this.queue.get(id);
+    if (!job?.report || !job.finishedAt) return null;
+    const expiresAtMs = Date.parse(job.finishedAt) + this.config.artifactTtlMinutes * 60_000;
+    if (!Number.isFinite(expiresAtMs) || Date.now() > expiresAtMs) return null;
+    return { report: job.report, expiresAt: new Date(expiresAtMs).toISOString() };
+  }
+
   cancelJob(id: string): Job {
     const job = this.queue.get(id);
     if (!job) throw new JobNotFoundError(id);
@@ -514,7 +590,16 @@ export class ScannerService {
         httpx: null,
         archivedUrls: [],
         email: null,
+        crawlRules: null,
+        securityTxt: null,
+        pageRecon: null,
+        headerPosture: null,
+        dnsHardening: null,
+        dnssec: null,
+        ipIntel: null,
       };
+      let pageHeaders: Record<string, string> = {};
+      let pageSetCookies: string[] = [];
       const toolResults: ToolResultRecord[] = [];
       const warnings: string[] = [];
       let fatalError: string | null = null;
@@ -578,6 +663,71 @@ export class ScannerService {
             observations.email = posture;
             record.ok = !posture.error;
             record.error = posture.error;
+          } else if (step.tool === 'crawl-rules') {
+            const crawl = await this.crawlRulesImpl(job.target, {
+              resolver: this.resolver,
+              userAgent: job.custom?.userAgent ?? undefined,
+              signal: controller.signal,
+            });
+            observations.crawlRules = crawl;
+            record.ok = !crawl.error;
+            record.error = crawl.error;
+          } else if (step.tool === 'security-txt') {
+            const security = await this.securityTxtImpl(job.target, {
+              resolver: this.resolver,
+              userAgent: job.custom?.userAgent ?? undefined,
+              signal: controller.signal,
+            });
+            observations.securityTxt = security;
+            record.ok = !security.error;
+            record.error = security.error;
+          } else if (step.tool === 'page-recon') {
+            const page = await this.pageReconImpl(job.target, {
+              resolver: this.resolver,
+              userAgent: job.custom?.userAgent ?? undefined,
+              signal: controller.signal,
+            });
+            observations.pageRecon = page.result;
+            pageHeaders = page.headers;
+            pageSetCookies = page.setCookies;
+            record.ok = !page.result.error;
+            record.error = page.result.error;
+          } else if (step.tool === 'header-posture') {
+            if (!observations.pageRecon || observations.pageRecon.error || Object.keys(pageHeaders).length === 0) {
+              record.ok = false;
+              record.error = 'Page fetch did not provide response headers; header posture was not graded.';
+            } else {
+              const posture = analyzeHeaderPosture({
+                headers: pageHeaders,
+                setCookies: pageSetCookies,
+                alpnProtocol: observations.tls?.alpnProtocol ?? null,
+              });
+              observations.headerPosture = posture;
+              record.ok = !posture.error;
+              record.error = posture.error;
+            }
+          } else if (step.tool === 'dns-hardening') {
+            const hardening = await this.dnsHardeningImpl(job.target.host);
+            observations.dnsHardening = hardening;
+            record.ok = !hardening.error;
+            record.error = hardening.error;
+          } else if (step.tool === 'dnssec') {
+            const dnssec = await this.dnssecImpl(job.target.host, this.config.dohEndpoint, this.resolver);
+            observations.dnssec = dnssec;
+            record.ok = !dnssec.error;
+            record.error = dnssec.error;
+          } else if (step.tool === 'ip-intel') {
+            const headers = Object.keys(pageHeaders).length > 0 ? pageHeaders : observations.http?.headers ?? {};
+            const ipIntel = await this.ipIntelImpl({
+              ips: initial.addresses,
+              headers,
+              cookieNames: observations.headerPosture?.cookies.map((c) => c.name) ?? [],
+              endpoint: this.config.ipIntelEndpoint,
+              resolver: this.resolver,
+            });
+            observations.ipIntel = ipIntel;
+            record.ok = !ipIntel.error;
+            record.error = ipIntel.error;
           } else if (step.tool === 'dnsx') {
             // In-process DNS enumeration (the dnsx binary hangs in containers).
             const records = await dnsRecordLookup(job.target.host);
@@ -829,6 +979,13 @@ export class ScannerService {
         archivedUrls: observations.archivedUrls,
         email: observations.email,
         tlsHardening: observations.tlsHardening,
+        crawlRules: observations.crawlRules,
+        securityTxt: observations.securityTxt,
+        pageRecon: observations.pageRecon,
+        headerPosture: observations.headerPosture,
+        dnsHardening: observations.dnsHardening,
+        dnssec: observations.dnssec,
+        ipIntel: observations.ipIntel,
         toolOk,
       });
 
@@ -876,6 +1033,13 @@ export class ScannerService {
         httpx: observations.httpx,
         archivedUrls: observations.archivedUrls,
         email: observations.email,
+        crawlRules: observations.crawlRules,
+        securityTxt: observations.securityTxt,
+        pageRecon: observations.pageRecon,
+        headerPosture: observations.headerPosture,
+        dnsHardening: observations.dnsHardening,
+        dnssec: observations.dnssec,
+        ipIntel: observations.ipIntel,
         toolResults,
         limitations: LIMITATIONS,
       };
@@ -1058,13 +1222,14 @@ export class ScannerService {
 
   private async sweepArtifacts(): Promise<void> {
     const ttlMs = this.config.artifactTtlMinutes * 60_000;
+    const now = Date.now();
+    this.queue.evictFinishedBefore(now - ttlMs);
     let dir: fs.Dirent[];
     try {
       dir = fs.readdirSync(this.config.artifactDir, { withFileTypes: true });
     } catch {
       return;
     }
-    const now = Date.now();
     for (const entry of dir) {
       if (!entry.isDirectory()) continue;
       const full = path.join(this.config.artifactDir, entry.name);

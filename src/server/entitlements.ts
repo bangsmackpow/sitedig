@@ -12,6 +12,9 @@ export const MODULE_ENTITLEMENT_KEYS: Record<ModuleId, string> = {
   'content-discovery': 'module:content-discovery',
   'cve-context': 'module:cve-context',
   'remediation-playbook': 'module:remediation-playbook',
+  'web-trust': 'module:web-trust',
+  'domain-hardening': 'module:domain-hardening',
+  'infra-intel': 'module:infra-intel',
 };
 
 export type EntitlementSource = 'admin' | 'stripe';

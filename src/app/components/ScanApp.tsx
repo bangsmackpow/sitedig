@@ -375,6 +375,9 @@ export default function ScanApp() {
             <div style={{ marginTop: 16 }}>
               <p className="meta-line">Reports are downloaded once each — links are single-use.</p>
               <div style={{ display: 'flex', gap: 12, marginTop: 8, flexWrap: 'wrap' }}>
+                <a className="button" href={`/scan/${encodeURIComponent(job.id)}`}>
+                  View report
+                </a>
                 <a className="button" href={`/api/scan/${encodeURIComponent(job.id)}/download/pdf`}>
                   Download PDF
                 </a>

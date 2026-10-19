@@ -51,6 +51,30 @@ export const MODULE_DEFINITIONS: Record<ModuleId, ModuleDefinition> = {
     tools: [],
     paid: true,
   },
+  'web-trust': {
+    id: 'web-trust',
+    name: 'Web Trust & Crawl',
+    description:
+      'Crawl rules (including AI crawlers), sitemap and security.txt discovery, page metadata and social tags, mixed content and SRI checks, third-party/tracker inventory, plus HSTS, CSP, cookie and ALPN posture grading.',
+    tools: ['crawl-rules', 'security-txt', 'page-recon', 'header-posture'],
+    paid: true,
+  },
+  'domain-hardening': {
+    id: 'domain-hardening',
+    name: 'Domain & Email Hardening',
+    description:
+      'CAA, SOA, SRV and resolver-address records, DNSSEC validation via DNS-over-HTTPS, DKIM selector discovery, BIMI, and detailed DMARC policy grading.',
+    tools: ['dns-hardening', 'dnssec'],
+    paid: true,
+  },
+  'infra-intel': {
+    id: 'infra-intel',
+    name: 'Infrastructure Intel',
+    description:
+      'IP geolocation, ASN/network ownership, reverse DNS, and WAF/CDN fingerprinting from response headers and cookies.',
+    tools: ['ip-intel'],
+    paid: true,
+  },
 };
 
 export const ALL_MODULES = Object.keys(MODULE_DEFINITIONS) as ModuleId[];

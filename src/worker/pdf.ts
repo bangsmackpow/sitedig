@@ -52,6 +52,9 @@ export function renderPdf(report: ReportModel, outPath: string): Promise<void> {
     wordpressSection(doc, report);
     assetDiscoverySection(doc, report);
     emailSection(doc, report);
+    webTrustSections(doc, report);
+    domainHardeningSections(doc, report);
+    ipIntelSection(doc, report);
     vulnerabilitiesSection(doc, report);
     contentDiscoverySection(doc, report);
     archivedUrlsSection(doc, report);
@@ -428,6 +431,129 @@ function emailSection(doc: PDFKit.PDFDocument, report: ReportModel) {
     const st = e.starttls;
     const stLabel = st.checked ? (st.supported ? 'offered' : 'not offered') : st.error ? `not checked (${st.error})` : 'not checked';
     kvRow(doc, 'MX STARTTLS', `${stLabel}${st.mx ? ` (${st.mx})` : ''}`);
+  }
+  doc.moveDown();
+}
+
+function webTrustSections(doc: PDFKit.PDFDocument, report: ReportModel) {
+  const crawl = report.crawlRules;
+  if (crawl) {
+    subsectionTitle(doc, 'Crawl Rules & Sitemap');
+    if (crawl.robots.error) {
+      doc.font('Helvetica').fontSize(9).fillColor(COLORS.muted).text(`robots.txt could not be read: ${crawl.robots.error}`, MARGIN, doc.y, { width: CONTENT_WIDTH });
+    } else if (!crawl.robots.found) {
+      doc.font('Helvetica').fontSize(9).fillColor(COLORS.muted).text('No robots.txt file was found.', MARGIN, doc.y, { width: CONTENT_WIDTH });
+    } else {
+      kvRow(doc, 'robots.txt', `${crawl.robots.url ?? 'n/a'} (HTTP ${crawl.robots.status ?? 'n/a'})`);
+      kvRow(doc, 'Rule groups', String(crawl.robots.groups.length));
+      kvRow(doc, 'AI crawler rules', crawl.robots.aiBots.map((b) => `${b.name}=${b.allowed ? 'allowed' : 'blocked'}`).join(', ') || 'none');
+      if (crawl.robots.sensitiveDisallows.length > 0) kvRow(doc, 'Sensitive disallows', crawl.robots.sensitiveDisallows.join(', '));
+    }
+    if (crawl.sitemap.found) {
+      kvRow(doc, 'Sitemaps', String(crawl.sitemap.sitemapCount));
+      kvRow(doc, 'URLs listed', String(crawl.sitemap.urlCount));
+    } else if (!crawl.sitemap.error) {
+      kvRow(doc, 'Sitemap', 'not found');
+    }
+    doc.moveDown();
+  }
+
+  const security = report.securityTxt;
+  if (security) {
+    subsectionTitle(doc, 'security.txt');
+    if (!security.found) {
+      doc.font('Helvetica').fontSize(9).fillColor(COLORS.muted).text('No security.txt file was found.', MARGIN, doc.y, { width: CONTENT_WIDTH });
+    } else {
+      kvRow(doc, 'URL', security.url ?? 'n/a');
+      kvRow(doc, 'Contacts', security.contacts.join(', ') || 'none');
+      if (security.expires) kvRow(doc, 'Expires', security.expires);
+      if (security.policy) kvRow(doc, 'Policy', security.policy);
+    }
+    doc.moveDown();
+  }
+
+  const page = report.pageRecon;
+  if (page) {
+    subsectionTitle(doc, 'Page Metadata & Assets');
+    if (page.error) {
+      doc.font('Helvetica').fontSize(9).fillColor(COLORS.muted).text(`Page analysis could not be completed: ${page.error}`, MARGIN, doc.y, { width: CONTENT_WIDTH });
+    } else {
+      if (page.metadata.title) kvRow(doc, 'Title', page.metadata.title);
+      if (page.metadata.description) kvRow(doc, 'Description', page.metadata.description);
+      if (page.metadata.canonical) kvRow(doc, 'Canonical', page.metadata.canonical);
+      if (page.metadata.generator) kvRow(doc, 'Generator', page.metadata.generator);
+      kvRow(doc, 'Links', `${page.links.total} (${page.links.internal} internal, ${page.links.external} external)`);
+      if (page.thirdParties.length > 0) kvRow(doc, 'Third parties', page.thirdParties.slice(0, 8).map((t) => `${t.host} (${t.category})`).join(', '));
+      if (page.mixedContent.length > 0) kvRow(doc, 'Mixed content', String(page.mixedContent.length));
+      if (page.missingSri.length > 0) kvRow(doc, 'Missing SRI', String(page.missingSri.length));
+    }
+    doc.moveDown();
+  }
+
+  const posture = report.headerPosture;
+  if (posture) {
+    subsectionTitle(doc, 'HTTP Security Posture');
+    if (posture.error) {
+      doc.font('Helvetica').fontSize(9).fillColor(COLORS.muted).text(`Header posture analysis could not be completed: ${posture.error}`, MARGIN, doc.y, { width: CONTENT_WIDTH });
+    } else {
+      kvRow(doc, 'HSTS', posture.hsts.present ? `${posture.hsts.value ?? 'present'}` : 'not set');
+      kvRow(doc, 'CSP', posture.csp ? `${posture.csp.reportOnly ? 'report-only' : 'enforced'}` : 'not set');
+      kvRow(doc, 'ALPN', posture.alpnProtocol ?? 'n/a');
+      if (posture.cookies.length > 0) {
+        table(doc, ['Cookie', 'Secure', 'HttpOnly', 'SameSite'], posture.cookies.slice(0, 20).map((c) => [c.name, String(c.secure), String(c.httpOnly), c.sameSite ?? 'n/a']));
+      }
+    }
+    doc.moveDown();
+  }
+}
+
+function domainHardeningSections(doc: PDFKit.PDFDocument, report: ReportModel) {
+  const d = report.dnsHardening;
+  if (d) {
+    subsectionTitle(doc, 'DNS & Email Hardening');
+    if (d.error) {
+      doc.font('Helvetica').fontSize(9).fillColor(COLORS.muted).text(`DNS hardening checks could not be completed: ${d.error}`, MARGIN, doc.y, { width: CONTENT_WIDTH });
+    } else {
+      kvRow(doc, 'CAA', d.caa.length > 0 ? d.caa.map((c) => `${c.tag}=${c.value}`).join(', ') : 'none');
+      if (d.soa) kvRow(doc, 'SOA', `${d.soa.ns} (serial ${d.soa.serial})`);
+      if (d.nsAddresses.length > 0) kvRow(doc, 'Nameserver IPs', d.nsAddresses.map((n) => `${n.ns} [${n.addresses.join(', ')}]`).join('; '));
+      kvRow(doc, 'DMARC', d.dmarc ? `p=${d.dmarc.policy ?? 'n/a'}${d.dmarc.rua.length ? `; rua=${d.dmarc.rua.join(',')}` : ''}` : 'none');
+      kvRow(doc, 'DKIM selectors', d.dkim.filter((k) => k.found && !k.revoked).map((k) => k.selector).join(', ') || 'none');
+      kvRow(doc, 'BIMI', d.bimi ? 'present' : 'none');
+    }
+    doc.moveDown();
+  }
+
+  const dnssec = report.dnssec;
+  if (dnssec) {
+    subsectionTitle(doc, 'DNSSEC');
+    if (dnssec.error) {
+      doc.font('Helvetica').fontSize(9).fillColor(COLORS.muted).text(`DNSSEC validation could not be completed: ${dnssec.error}`, MARGIN, doc.y, { width: CONTENT_WIDTH });
+    } else {
+      kvRow(doc, 'Signed', String(dnssec.signed));
+      kvRow(doc, 'AD bit', String(dnssec.ad));
+      kvRow(doc, 'DNSKEY / DS', `${dnssec.dnskeyCount} / ${dnssec.dsCount}`);
+      if (dnssec.algorithms.length > 0) kvRow(doc, 'Algorithms', dnssec.algorithms.join(', '));
+    }
+    doc.moveDown();
+  }
+}
+
+function ipIntelSection(doc: PDFKit.PDFDocument, report: ReportModel) {
+  const intel = report.ipIntel;
+  if (!intel) return;
+  subsectionTitle(doc, 'IP, ASN & Edge Infrastructure');
+  if (intel.error) {
+    doc.font('Helvetica').fontSize(9).fillColor(COLORS.muted).text(`IP intelligence could not be completed: ${intel.error}`, MARGIN, doc.y, { width: CONTENT_WIDTH });
+  }
+  if (intel.waf) kvRow(doc, 'WAF', intel.waf.name);
+  if (intel.cdn) kvRow(doc, 'CDN', intel.cdn.name);
+  if (intel.ips.length > 0) {
+    table(
+      doc,
+      ['IP', 'PTR', 'Country', 'City', 'ASN', 'Org'],
+      intel.ips.map((ip) => [ip.ip, ip.ptr ?? 'n/a', ip.country ?? 'n/a', ip.city ?? 'n/a', ip.asn ?? 'n/a', ip.org ?? 'n/a']),
+    );
   }
   doc.moveDown();
 }

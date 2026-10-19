@@ -112,7 +112,15 @@ export default function HistoryPage() {
                   )}
                   {s.findings.critical + s.findings.high + s.findings.medium + s.findings.low + s.findings.informational === 0 && '—'}
                 </td>
-                <td>
+                <td style={{ whiteSpace: 'nowrap' }}>
+                  {s.status === 'completed' && (
+                    <>
+                      <Link className="link" href={`/scan/${encodeURIComponent(s.id)}`}>
+                        View
+                      </Link>
+                      {' | '}
+                    </>
+                  )}
                   <Link className="link" href={`/?target=${encodeURIComponent(s.target)}`}>
                     Re-run
                   </Link>
