@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { apiFetch } from '@/app/lib/api';
+import { buildReportPresentation } from '@/shared/report-presentation';
 import type { ReportModel, Finding, ScanDiff } from '@/shared/types';
 
 const SEVERITY_ORDER: Record<Finding['severity'], number> = { critical: 5, high: 4, medium: 3, low: 2, informational: 1 };
@@ -64,10 +65,8 @@ export default function ReportPage() {
   }
 
   const findings = [...report.findings].sort((a, b) => SEVERITY_ORDER[b.severity] - SEVERITY_ORDER[a.severity]);
-  const counts = findings.reduce(
-    (acc, f) => ({ ...acc, [f.severity]: acc[f.severity] + 1 }),
-    { critical: 0, high: 0, medium: 0, low: 0, informational: 0 } as Record<Finding['severity'], number>,
-  );
+  const presentation = buildReportPresentation(report);
+  const counts = presentation.counts;
 
   return (
     <div className="card">
@@ -86,6 +85,7 @@ export default function ReportPage() {
       </div>
 
       <div className="summary-grid" style={{ marginTop: 14 }}>
+        <span className="summary-pill">Risk {presentation.risk.grade} · {presentation.risk.score}/100</span>
         {(['critical', 'high', 'medium', 'low', 'informational'] as const).map((sev) => (
           <span key={sev} className="summary-pill">{counts[sev]} {sev}</span>
         ))}

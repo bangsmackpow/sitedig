@@ -15,6 +15,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.worker.json",
     "test": "vitest run",
     "test:watch": "vitest",
+    "pdf:preview": "tsx scripts/pdf-preview.ts",
     "validate:compose": "node scripts/validate-compose.mjs"
   },
   "dependencies": {

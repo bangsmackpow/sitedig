@@ -337,14 +337,19 @@ With `ADMIN_DIGEST_ENABLED=true`, the web sends a daily email (after `ADMIN_DIGE
 
 Each report is organized as **Executive Summary → Findings → Cross-Tool Validation Matrix → How to Resolve → Technical Appendix → Tool Execution/Limitations**:
 
+- **Cover page** with target, report ID, profile, scope, timestamp, and overall risk score/grade
+- **Executive dashboard** with risk gauge, severity distribution, KPI cards, key takeaways, and top priorities
 - Scan metadata (target, host, path, profile, port scope, active modules, timestamps, tool versions)
 - Executive summary with severity roll-up, independent confirmations, and key observations
 - Findings with category (`Exposure`, `Misconfiguration`, `Outdated Technology`, `WordPress Finding`, `Vulnerability`, `Informational`), severity, evidence grouped as "what the tools saw", confidence, and a cross-tool validation line
 - **Cross-Tool Validation Matrix** — a finding × tool grid showing which tools independently observed (✓), disagreed (✗), or did not apply; multi-source agreement raises confidence and disagreement is flagged for verification
 - **How to Resolve (Remediation Playbook)** — with the Premium `remediation-playbook` module: per-finding steps with exact nginx/Apache commands, verification commands, owner/effort, references, and a prioritized 30-day roadmap. Without the module, a one-line remediation plus a Premium teaser is shown
-- - **Interactive report viewer** - authenticated owners (and admins) can view the report at `/scan/<id>` while the in-memory TTL is active. Reports are never persisted; PDF/Markdown downloads remain single-use
+- **Security posture** - HTTP/TLS/DNS/email scorecards, certificate expiry, CVE context, exposure charts, and tool execution reliability
+- **Interactive report viewer** - authenticated owners (and admins) can view the report at `/scan/<id>` while the in-memory TTL is active. Reports are never persisted; PDF/Markdown downloads remain single-use
 - **Technical Appendix** — one subsection per tool: Nmap ports/services, HTTP header inspection, httpx surface validation, TLS certificate inspection, testssl.sh, WhatWeb technologies, WordPress/WPScan, Subfinder subdomains, DNS records, email/DNS posture, RDAP/WHOIS, Nuclei/Retire vulnerabilities, Feroxbuster paths, Wayback URL history, OSV CVE context, crawl rules/sitemap, security.txt, page metadata/assets, HTTP security posture, DNS/email hardening, DNSSEC, and IP/ASN/edge infrastructure
 - Sanitized tool execution summary and explicit limitations
+
+The PDF uses a print-friendly executive layout with vendored IBM Plex fonts, vector charts, page headers/footers, and a consistent visual system. The Markdown report retains the same underlying report model.
 
 Severity ratings are **inferred** from observed evidence and clearly flagged as such; the report states that this is a detection-oriented reconnaissance report, not a vulnerability assessment. Archived credential-bearing URLs are stored with their secret values masked — the value is never written into a report.
 

@@ -46,6 +46,7 @@ Run `npm run lint`, `npm run typecheck`, and `npm test` before declaring work co
 - **Report viewer** (`src/app/scan/[id]/page.tsx`, `GET /api/scan/[id]/report`): renders the worker's in-memory `ReportModel` while the artifact TTL is active. Ownership is checked against the `scans` table; reports are still never persisted.
 - **Trust modules** (`web-trust`, `domain-hardening`, `infra-intel`): in-process checks in `src/worker/` wired through `expandModules` in `src/shared/profiles.ts`. New outbound HTTP must use `src/worker/safe-fetch.ts` (per-hop DNS validation, redirect caps, body caps).
 - **Recurring scans** (`src/server/schedules.ts`, `src/server/scheduler.ts`, `src/server/scan-diffs.ts`): Premium-only daily/weekly schedules dispatched on a 5-minute web tick. `scan_findings` stores fingerprint/title/severity/category/affected/source-tools metadata only; never evidence or full reports. Alerts default to new high/critical findings.
+- **PDF reports** (`src/worker/pdf/`, `src/shared/report-presentation.ts`): PDFKit design system with vendored IBM Plex fonts, vector charts, executive dashboard, posture scorecards, and a technical appendix. Keep the web viewer and PDF metrics derived from the shared presentation model.
 
 ## Environment
 

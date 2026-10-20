@@ -185,8 +185,10 @@ COPY --from=build /app/.next ./.next
 COPY --from=build /app/dist-worker ./dist-worker
 COPY --from=build /app/next.config.mjs ./
 COPY --from=build /app/public ./public
-# Content-discovery wordlist.
+# Content-discovery wordlist and print fonts for PDF reports.
 COPY --chown=scanner:scanner assets/wordlists/common.txt /opt/sitedig/wordlists/common.txt
+COPY --chown=scanner:scanner assets/fonts /opt/sitedig/fonts
+ENV REPORT_FONT_DIR=/opt/sitedig/fonts
 
 # Artifact workspace owned by the scanner user.
 RUN mkdir -p /tmp/sitedig-artifacts /data && chown -R scanner:scanner /app /tmp/sitedig-artifacts /opt/sitedig /data

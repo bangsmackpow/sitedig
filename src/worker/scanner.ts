@@ -1065,7 +1065,7 @@ export class ScannerService {
       const markdownPath = path.join(jobDir, 'report.md');
       const pdfPath = path.join(jobDir, 'report.pdf');
       fs.writeFileSync(markdownPath, renderMarkdown(report), 'utf8');
-      await renderPdf(report, pdfPath);
+      await renderPdf(report, pdfPath, { reportId: job.id });
 
       job.report = report;
       job.artifacts = {
