@@ -32,8 +32,12 @@ tests/.tmp
 DEEPSEEK-V4-FLASH-IMPLEMENTATION.md
 DEEPSEEK-V4-FLASH-PROMPT.md
 
-# Local artifacts
+# Local artifacts and database
 artifacts
+data
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
 
 # Editor files
 .vscode

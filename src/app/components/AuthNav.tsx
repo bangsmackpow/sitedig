@@ -43,9 +43,9 @@ export default function AuthNav() {
 
   if (user) {
     return (
-      <nav className="nav-auth" style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-        <span className="pill active" title={`Signed in as ${user.email}`}>
-          Signed in · {user.email}
+      <nav className="nav-auth">
+        <span className="pill active nav-user" title={`Signed in as ${user.email}`}>
+          {user.email}
         </span>
         {user.role === 'admin' && (
           <Link className="link" href="/admin">
@@ -82,7 +82,7 @@ export default function AuthNav() {
   }
 
   return (
-    <nav className="nav-auth" style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+    <nav className="nav-auth">
       <Link className="link" href="/pricing">
         Pricing
       </Link>

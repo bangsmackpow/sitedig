@@ -238,10 +238,20 @@ export default function ScanApp() {
 
   return (
     <div className="card">
-      <h1>Scan a site you own or are authorized to test</h1>
-      <p className="lead">
-        SiteDig runs a bounded, TCP-only reconnaissance scan and produces a PDF or Markdown report you can download.
-      </p>
+      <div className="page-head">
+        <div>
+          <p className="eyebrow">Authorized reconnaissance</p>
+          <h1>Scan a site you own or are authorized to test</h1>
+          <p className="lead">
+            SiteDig runs a bounded, TCP-only reconnaissance scan and produces a PDF or Markdown report you can download.
+          </p>
+        </div>
+        <div className="summary-grid" style={{ marginTop: 0 }}>
+          <span className="pill info">Detection only</span>
+          <span className="pill active">Non-destructive</span>
+          <span className="pill">Consent required</span>
+        </div>
+      </div>
 
       <div className="field">
         <label htmlFor="target">Target</label>

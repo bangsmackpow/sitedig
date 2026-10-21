@@ -33,6 +33,12 @@ yarn-error.log*
 # artifacts dir (if run locally)
 /artifacts
 
+# local SQLite database
+/data/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
 # Project setup/handoff docs (never pushed)
 DEEPSEEK-V4-FLASH-IMPLEMENTATION.md
 DEEPSEEK-V4-FLASH-PROMPT.md
