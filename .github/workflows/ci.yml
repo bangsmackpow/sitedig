@@ -100,6 +100,7 @@ jobs:
           exit-code: '1'
           severity: CRITICAL,HIGH
           ignore-unfixed: true
+          scanners: vuln
 
       - name: Trigger Portainer stack update
         if: env.PORTAINER_WEBHOOK_URL != ''
