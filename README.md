@@ -264,6 +264,8 @@ These checks live in `src/shared/net.ts` and are heavily unit-tested.
 
 All profiles share one command pipeline, so safety rules cannot be bypassed by profile choice. Enabling premium add-on modules extends a scan beyond the profile duration up to the configured job cap (default 10 min, max 15 min).
 
+> **PHP2Shell Check troubleshooting:** this profile and the free advisory check require a current image. If the profile is missing or a known-vulnerable PHP version is not flagged, pull and recreate the stack (`docker compose pull && docker compose up -d`, or Portainer -> Recreate). Version detection needs PHP to expose a fingerprint; if the version is hidden, the scan reports a medium "version could not be determined" finding instead.
+
 ## Paid add-on modules
 
 SiteDig ships a set of **Premium add-on modules**. A user must hold an active Premium entitlement to run them, and an admin must enable the module on the deployment (`ENABLED_MODULES` acts as the ceiling). In `hosted` mode, Premium is granted by an active Stripe subscription (the billing webhook is the source of truth); in `self-hosted` mode, admins grant Premium from the admin console. The web route rejects requests for modules a user cannot access with `403 module_locked` before any job reaches the worker; the worker independently rejects with `403 module_not_enabled`.
