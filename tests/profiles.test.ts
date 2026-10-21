@@ -23,6 +23,13 @@ describe('expandProfile', () => {
     expect(expandProfile('deep', target, null, paths).portScope).toBe('top1000');
   });
 
+  it('php profile is fast and runs only web fingerprint checks', () => {
+    const plan = expandProfile('php', target, null, paths);
+    expect(plan.portScope).toBe('common');
+    const tools = plan.steps.map((s) => s.tool);
+    expect(tools).toEqual(['whatweb', 'http']);
+  });
+
   it('preserves path for web checks and hostname for nmap', () => {
     const plan = expandProfile('standard', target, null, paths);
     const whatweb = plan.steps.find((s) => s.tool === 'whatweb');

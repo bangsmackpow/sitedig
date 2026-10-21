@@ -1,4 +1,6 @@
 import { SECURITY_HEADERS } from '../shared/constants';
+import { evaluatePhpAdvisory, parseRuntimeVersion, PHP2SHELL } from '../shared/advisories';
+import { detectPhpRuntime } from './php-runtime';
 import type {
   ArchivedUrl,
   Corroboration,
@@ -403,6 +405,60 @@ export function buildFindings(input: FindingsInput): Finding[] {
       playbookKey: 'tech-versions',
     };
     findings.push(applyCorroboration(finding, corroborate(supporting)));
+  }
+
+  // Curated runtime advisories (free, version-based, no exploitation).
+  const php = detectPhpRuntime({ technologies: input.technologies, http: input.http, httpx: input.httpx });
+  if (php.present) {
+    const evaluation = evaluatePhpAdvisory(PHP2SHELL, parseRuntimeVersion(php.version));
+    const tools: ToolName[] = [];
+    if (php.sources.includes('whatweb')) tools.push('whatweb');
+    if (php.sources.includes('httpx')) tools.push('httpx');
+    if (php.sources.includes('http')) tools.push('http');
+    const supporting = tools.length > 0 ? tools : ['http' as ToolName];
+    const evidence = [
+      `detected PHP: ${php.version ?? 'version unknown'}`,
+      `source: ${php.source ?? php.sources.join(', ')}`,
+      ...(evaluation.fixedVersion ? [`fixed release: ${evaluation.fixedVersion}`] : []),
+      ...(evaluation.branch ? [`branch: ${evaluation.branch}`] : []),
+      `SAPIs in scope: ${PHP2SHELL.sapis.join(', ')}`,
+      `advisory: ${PHP2SHELL.references[0]}`,
+      'detection is version-based only; no exploit was attempted',
+    ];
+
+    if (evaluation.state === 'vulnerable') {
+      const finding: Finding = {
+        id: nextId(),
+        category: 'vulnerability',
+        severity: 'critical',
+        title: `PHP ${php.version} is vulnerable to PHP2Shell (${PHP2SHELL.cves.join(' / ')})`,
+        description: `${evaluation.reason} ${PHP2SHELL.summary} ${PHP2SHELL.impact}`,
+        evidence,
+        affected: `${input.host}${input.path}`,
+        confidence: php.confidence === 'high' ? 'high' : 'medium',
+        verified: true,
+        remediation: PHP2SHELL.remediation,
+        sourceTools: supporting,
+        playbookKey: PHP2SHELL.id,
+      };
+      findings.push(applyCorroboration(finding, corroborate(supporting)));
+    } else if (evaluation.state === 'unknown') {
+      const finding: Finding = {
+        id: nextId(),
+        category: 'vulnerability',
+        severity: 'medium',
+        title: 'PHP detected but version could not be determined (PHP2Shell exposure unknown)',
+        description: `${PHP2SHELL.summary} The runtime was fingerprinted, but the version is hidden or was not reported. Verify the deployed PHP version against the fixed releases.`,
+        evidence,
+        affected: `${input.host}${input.path}`,
+        confidence: 'low',
+        verified: false,
+        remediation: PHP2SHELL.remediation,
+        sourceTools: supporting,
+        playbookKey: PHP2SHELL.id,
+      };
+      findings.push(applyCorroboration(finding, corroborate(supporting)));
+    }
   }
 
   // WordPress

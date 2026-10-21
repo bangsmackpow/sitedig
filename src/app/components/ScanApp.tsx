@@ -262,6 +262,7 @@ export default function ScanApp() {
           <label htmlFor="profile">Profile</label>
           <select id="profile" value={profile} onChange={(e) => setProfile(e.target.value as ScanProfile)} disabled={isBusy}>
             <option value="quick">Quick</option>
+            <option value="php">PHP2Shell Check (free)</option>
             <option value="standard">Standard</option>
             <option value="deep">Deep</option>
             <option value="custom">Custom</option>

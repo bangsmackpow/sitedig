@@ -46,7 +46,13 @@ function isEnabled(tool: ToolName, custom: CustomScanOptions | null): boolean {
  */
 export function expandProfile(profile: ScanProfile, target: NormalizedTarget, custom: CustomScanOptions | null, opts: PlanOpts): ScanPlan {
   const portScope: PortScope =
-    profile === 'custom' ? (custom?.portScope ?? 'top100') : profile === 'quick' ? 'common' : profile === 'standard' ? 'top100' : 'top1000';
+    profile === 'custom'
+      ? (custom?.portScope ?? 'top100')
+      : profile === 'quick' || profile === 'php'
+        ? 'common'
+        : profile === 'standard'
+          ? 'top100'
+          : 'top1000';
 
   const path = profile === 'custom' ? (custom?.path ?? DEFAULT_HTTP_PATH) : target.path;
   const userAgent = profile === 'custom' ? (custom?.userAgent ?? DEFAULT_USER_AGENT) : DEFAULT_USER_AGENT;
@@ -55,7 +61,7 @@ export function expandProfile(profile: ScanProfile, target: NormalizedTarget, cu
 
   const steps: ToolStep[] = [];
 
-  if (isEnabled('nmap', custom)) {
+  if (profile !== 'php' && isEnabled('nmap', custom)) {
     steps.push({
       tool: 'nmap',
       label: 'Nmap TCP discovery',
@@ -88,7 +94,7 @@ export function expandProfile(profile: ScanProfile, target: NormalizedTarget, cu
   if (isEnabled('http', custom)) {
     steps.push({ tool: 'http', label: 'HTTP header inspection', args: [path] });
   }
-  if (isEnabled('tls', custom)) {
+  if (profile !== 'php' && isEnabled('tls', custom)) {
     steps.push({ tool: 'tls', label: 'TLS certificate inspection', args: ['443'] });
   }
 

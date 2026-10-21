@@ -84,6 +84,27 @@ export const PROFILE_DESCRIPTIONS: Record<Exclude<ScanProfile, 'custom'>, Profil
     ],
     limitations: ['Only the curated common port list is checked', 'No UDP, all-port, CIDR, or exploit checks'],
   },
+  php: {
+    id: 'php',
+    name: 'PHP2Shell Check',
+    summary:
+      'A fast, free, version-based check for the PHP2Shell RCE pair (CVE-2026-109618 / CVE-2026-109619). It fingerprints PHP from headers and whatweb, then compares the version with the fixed releases.',
+    tools: ['whatweb', 'HTTP headers'],
+    portScope: 'No port sweep (HTTP/HTTPS only)',
+    expectedDuration: '~10–30 seconds, capped at the configured limit',
+    noise: 'Very low. Normal HTTP requests only; no exploit payloads.',
+    checks: [
+      'Detect PHP from X-Powered-By, Server, whatweb, and httpx fingerprints',
+      'Compare the PHP version with the fixed releases for each supported branch',
+      'Flag PHP 8.2/8.3/8.4/8.5 below the patch level and all EOL branches',
+      'Report when PHP is present but the version is hidden',
+    ],
+    limitations: [
+      'Version detection depends on the server exposing PHP; hidden versions are reported as unknown',
+      'Distribution backports can make a version string look vulnerable or fixed when it is not',
+      'No exploitation is attempted',
+    ],
+  },
   standard: {
     id: 'standard',
     name: 'Standard Scan',

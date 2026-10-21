@@ -1,4 +1,4 @@
-export type ScanProfile = 'quick' | 'standard' | 'deep' | 'custom';
+export type ScanProfile = 'quick' | 'standard' | 'deep' | 'php' | 'custom';
 
 export type PortScope = 'common' | 'top100' | 'top1000';
 

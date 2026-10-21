@@ -177,6 +177,63 @@ describe('buildFindings', () => {
     expect(sensitive?.description).toContain('still answer');
   });
 
+  it('flags PHP2Shell from a vulnerable X-Powered-By version', () => {
+    const findings = buildFindings(
+      base({
+        http: {
+          status: 200,
+          finalUrl: 'https://example.com/',
+          server: 'Apache/2.4.62',
+          poweredBy: 'PHP/8.4.26',
+          headers: {},
+          redirects: [],
+          error: null,
+        },
+      }),
+    );
+    const f = findings.find((x) => x.title.includes('PHP2Shell'));
+    expect(f?.severity).toBe('critical');
+    expect(f?.category).toBe('vulnerability');
+    expect(f?.playbookKey).toBe('php2shell');
+    expect(f?.evidence.join(' ')).toContain('8.4.27');
+  });
+
+  it('flags PHP with a hidden version as medium', () => {
+    const findings = buildFindings(
+      base({
+        http: {
+          status: 200,
+          finalUrl: 'https://example.com/',
+          server: null,
+          poweredBy: 'PHP',
+          headers: {},
+          redirects: [],
+          error: null,
+        },
+      }),
+    );
+    const f = findings.find((x) => x.title.includes('version could not be determined'));
+    expect(f?.severity).toBe('medium');
+    expect(f?.verified).toBe(false);
+  });
+
+  it('does not flag a fixed PHP version', () => {
+    const findings = buildFindings(
+      base({
+        http: {
+          status: 200,
+          finalUrl: 'https://example.com/',
+          server: null,
+          poweredBy: 'PHP/8.4.27',
+          headers: {},
+          redirects: [],
+          error: null,
+        },
+      }),
+    );
+    expect(findings.some((x) => x.title.includes('PHP2Shell'))).toBe(false);
+  });
+
   it('assigns a playbook key and source tools to every finding', () => {
     const findings = buildFindings(base({ ports: [{ port: 22, state: 'open', protocol: 'tcp', service: 'ssh', version: '' }] }));
     for (const f of findings) {

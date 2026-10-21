@@ -161,6 +161,7 @@ export default function SchedulesPage() {
           <label htmlFor="schedule-profile">Profile</label>
           <select id="schedule-profile" value={profile} onChange={(e) => setProfile(e.target.value as ScanProfile)}>
             <option value="quick">Quick</option>
+            <option value="php">PHP2Shell Check (free)</option>
             <option value="standard">Standard</option>
             <option value="deep">Deep</option>
           </select>

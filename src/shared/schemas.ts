@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const portScopeSchema = z.enum(['common', 'top100', 'top1000']);
-export const scanProfileSchema = z.enum(['quick', 'standard', 'deep', 'custom']);
+export const scanProfileSchema = z.enum(['quick', 'standard', 'deep', 'php', 'custom']);
 export const toolNameSchema = z.enum([
   'nmap',
   'whatweb',

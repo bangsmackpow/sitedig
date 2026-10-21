@@ -721,4 +721,74 @@ export const PLAYBOOKS: Record<string, PlaybookEntry> = {
       refs: ['https://www.icann.org/resources/pages/dnssec-what-is-it-why-important-2019-03-05-en'],
     },
   },
+  'php2shell': {
+    key: 'php2shell',
+    title: 'PHP2Shell: unauthenticated remote code execution in PHP core',
+    execSummary:
+      'The deployed PHP runtime is below the fixed release for PHP2Shell (CVE-2026-109618 / CVE-2026-109619). An unauthenticated attacker can run code as the PHP process account. Patching is the only complete fix; configuration changes reduce specific paths but do not close the vulnerability.',
+    generic: {
+      owner: 'DevOps / platform engineer',
+      effort: 'S',
+      steps: [
+        {
+          title: 'Confirm the deployed branch and version',
+          detail: 'Check every PHP runtime that serves traffic, including containers and host packages.',
+          commands: ['php -v', 'php-fpm -v'],
+        },
+        {
+          title: 'Upgrade to the fixed release for the branch',
+          detail: 'Fixed releases: PHP 8.2.35, 8.3.36, 8.4.27, 8.5.12. EOL branches (5.x-8.1.x) have no upstream fix and should be upgraded to a supported branch.',
+          commands: [
+            '# Debian/Ubuntu example for PHP 8.4',
+            'sudo apt-get update && sudo apt-get install --only-upgrade php8.4-fpm php8.4-cli',
+            '# RHEL/AlmaLinux example',
+            "sudo dnf upgrade 'php*'",
+          ],
+        },
+        {
+          title: 'Restart every PHP worker',
+          detail: 'The fix only takes effect after all PHP workers are restarted. Restart containers and rolling workers too.',
+          commands: ['sudo systemctl restart php8.4-fpm'],
+        },
+        {
+          title: 'Preserve logs and check for compromise',
+          detail: 'Retain PHP and web-server logs, then look for new web shells, unexpected cron jobs, or newly created accounts tied to the PHP process.',
+        },
+      ],
+      verify: [
+        'php -v reports a fixed release for the deployed branch.',
+        'Every PHP worker and container reports the same fixed version.',
+        'curl -sI https://<host> shows no PHP/8.2.34 (or older) version banner if X-Powered-By is exposed.',
+      ],
+      refs: [
+        'https://www.php.net/archive/2026.php#2026-10-21-5',
+        'https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w',
+        'https://github.com/php/php-src/security/advisories/GHSA-6wmf-4rv5-p3rp',
+      ],
+    },
+    stacks: {
+      nginx: {
+        owner: 'DevOps / platform engineer',
+        effort: 'S',
+        steps: [
+          { title: 'Upgrade the PHP-FPM package to the fixed release for the deployed branch.' },
+          { title: 'Restart PHP-FPM and reload nginx.', commands: ['sudo systemctl restart php8.4-fpm', 'sudo nginx -t && sudo systemctl reload nginx'] },
+          { title: 'Confirm the version inside the FPM pool/container.', commands: ['php-fpm -v'] },
+        ],
+        verify: ['php-fpm -v reports the fixed release; nginx reload succeeds.'],
+        refs: ['https://www.php.net/archive/2026.php#2026-10-21-5'],
+      },
+      apache: {
+        owner: 'DevOps / platform engineer',
+        effort: 'S',
+        steps: [
+          { title: 'Upgrade PHP and the Apache module or PHP-FPM package to the fixed release.' },
+          { title: 'Restart Apache and every PHP worker.', commands: ['sudo systemctl restart apache2', 'sudo systemctl restart php8.4-fpm'] },
+          { title: 'Prefer PHP-FPM over mod_php where possible.', detail: 'PHP identifies mod_php as the highest-risk deployment for PHP2Shell.' },
+        ],
+        verify: ['php -v reports the fixed release; Apache and PHP-FPM restarted cleanly.'],
+        refs: ['https://www.php.net/archive/2026.php#2026-10-21-5'],
+      },
+    },
+  },
 };

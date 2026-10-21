@@ -22,7 +22,8 @@ It is **not** a vulnerability scanner. It never runs exploitation, brute force, 
 
 - **Accounts & access control** — email/password accounts with email verification and password reset, DB-backed sessions, an admin console, and **multi-factor authentication** (email one-time codes via Resend, plus TOTP authenticator apps with single-use recovery codes). Two deployment modes: `hosted` (public multi-tenant SaaS with Stripe billing) and `self-hosted` (single-org install with an env-bootstrapped first admin).
 - **Email delivery** — provider-selectable outbound email via **Resend** (REST, no SDK) or SMTP, used for verification, password reset, MFA codes, and the daily admin digest.
-- **Four scan profiles** — Quick, Standard, Deep, and a bounded Custom profile, each with plain-language scope, tool, noise, and duration descriptions shown before you scan.
+- **Five scan profiles** — Quick, PHP2Shell Check (free), Standard, Deep, and a bounded Custom profile, each with plain-language scope, tool, noise, and duration descriptions shown before you scan.
+- **Free emergency checks** - curated offline runtime advisories (starting with PHP2Shell, CVE-2026-109618 / CVE-2026-109619) run on every scan and in a dedicated free PHP2Shell profile. Detection is version-based from existing fingerprints; no exploit payloads are sent.
 - **Strict target safety** — RFC1918, loopback, link-local, multicast, reserved, documentation, IPv6 ULA, and cloud-metadata addresses are rejected. DNS is re-validated before *every* tool, DNS rebinding is detected, and every HTTP redirect destination is safety-checked.
 - **Authorization gate** — a consent modal with a required checkbox must be acknowledged for **every** scan.
 - **Lifecycle transparency** — simple `queued → running → completed / failed / cancelled` status, with the option to cancel a queued or running scan.
@@ -256,6 +257,7 @@ These checks live in `src/shared/net.ts` and are heavily unit-tested.
 | Profile | Port scope | Typical duration | Notes |
 | --- | --- | --- | --- |
 | **Quick** | Common ports (curated) | ~30–60s | Low noise; fast first look |
+| **PHP2Shell Check** | No port sweep (HTTP/HTTPS) | ~10-30s | Free: fingerprints PHP and checks CVE-2026-109618 / CVE-2026-109619 |
 | **Standard** | Top 100 TCP | ~1–3 min | Expanded service/version detection |
 | **Deep** | Top 1,000 TCP | up to the scan cap | Detailed enumeration, still hard-capped |
 | **Custom** | common / top100 / top1000 | user-selected | Bounded controls only — no raw args |

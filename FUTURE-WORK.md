@@ -27,13 +27,14 @@ completed P0/P1 fix train. Work through these in priority order.
 
 ## Detection coverage
 
-- [ ] PHP core CVE detection: add a nuclei template or explicit version check
-      for CVE-2026-109618 / CVE-2026-109619. Today `cve-context` has no PHP
-      mapping (`src/worker/osv.ts`) and the nuclei allowlist
-      (`.env.example`, `src/shared/config.ts`) contains only tech-detect,
-      git-config, and TLS templates.
+- [x] PHP2Shell detection (CVE-2026-109618 / CVE-2026-109619): free
+      version-based check in `src/shared/advisories.ts` +
+      `src/worker/php-runtime.ts`, surfaced by `buildFindings`, with a
+      dedicated free `php` profile.
+- [ ] Extend the curated advisory framework to more runtimes (IIS, Tomcat/Java,
+      nginx, Apache) using the same version-range model.
 - [ ] Expand `mapTechnologyToOsv` to cover PHP, IIS, Tomcat/Java, and other
-      commonly fingerprinted runtimes.
+      commonly fingerprinted runtimes (OSV currently has no PHP core records).
 - [ ] Establish a cadence for reviewing the nuclei allowlist against new
       high-severity, unauthenticated RCE advisories.
 
