@@ -42,9 +42,12 @@ export interface WebConfig {
     secretKey: string;
     webhookSecret: string;
     priceId: string;
+    annualPriceId: string;
     portalReturnUrl: string;
     configured: boolean;
   };
+  /** Paid-subscriber support contact (shown only to Premium users). */
+  supportEmail: string;
   /** Deployment-level availability ceiling for paid modules (env ENABLED_MODULES). */
   enabledModules: Set<ModuleId>;
   /** Daily admin digest (new signups + scan activity). */
@@ -146,9 +149,11 @@ export function getWebConfig(env: NodeJS.ProcessEnv = process.env): WebConfig {
       secretKey: stripeKey,
       webhookSecret: stripeWebhook,
       priceId: env.STRIPE_PRICE_ID ?? '',
+      annualPriceId: env.STRIPE_ANNUAL_PRICE_ID ?? '',
       portalReturnUrl: env.STRIPE_PORTAL_RETURN_URL ?? '',
       configured: Boolean(stripeKey && stripeWebhook && env.STRIPE_PRICE_ID),
     },
+    supportEmail: (env.SUPPORT_EMAIL ?? '').trim(),
     enabledModules: parseEnabledModules(env as Record<string, string | undefined>),
     digest: {
       enabled: boolEnv(env, 'ADMIN_DIGEST_ENABLED', false),
@@ -176,6 +181,9 @@ export function validateWebConfig(config: WebConfig): void {
   if (config.deploymentMode === 'hosted') {
     if (!config.stripe.configured) {
       throw new Error('Hosted mode requires STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, and STRIPE_PRICE_ID.');
+    }
+    if (!config.stripe.annualPriceId) {
+      throw new Error('Hosted mode requires STRIPE_ANNUAL_PRICE_ID for annual billing.');
     }
     if (!config.email.configured) {
       throw new Error('Hosted mode requires email delivery: set RESEND_API_KEY + EMAIL_FROM, or SMTP_HOST + SMTP_FROM.');

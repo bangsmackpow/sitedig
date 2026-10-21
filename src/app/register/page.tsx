@@ -23,10 +23,13 @@ export default function RegisterPage() {
         method: 'POST',
         body: JSON.stringify({ email, password }),
       });
+      const wantsPremium = new URLSearchParams(window.location.search).get('plan') === 'premium';
       if (data.needsVerification) {
-        setMessage('Account created. Check your email for a verification link, then sign in.');
+        setMessage(
+          `Account created. Check your email for a verification link, then sign in${wantsPremium ? ' and open Account to upgrade' : ''}.`,
+        );
       } else {
-        router.push('/');
+        router.push(wantsPremium ? '/account' : '/');
         router.refresh();
       }
     } catch (err) {
@@ -58,6 +61,13 @@ export default function RegisterPage() {
           </button>
         </div>
       </form>
+      <p className="hint" style={{ marginTop: 12 }}>
+        By creating an account you agree to the{' '}
+        <Link className="link" href="/acceptable-use">
+          Acceptable Use Policy
+        </Link>
+        .
+      </p>
       <p className="text-muted" style={{ marginTop: 16 }}>
         Already have an account?{' '}
         <Link className="link" href="/login">

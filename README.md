@@ -117,7 +117,9 @@ services:
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
       STRIPE_PRICE_ID: ${STRIPE_PRICE_ID:-}
+      STRIPE_ANNUAL_PRICE_ID: ${STRIPE_ANNUAL_PRICE_ID:-}
       STRIPE_PORTAL_RETURN_URL: ${STRIPE_PORTAL_RETURN_URL:-}
+      SUPPORT_EMAIL: ${SUPPORT_EMAIL:-}
       ENABLED_MODULES: ${ENABLED_MODULES:-}
       SCAN_HISTORY_RETENTION_DAYS: ${SCAN_HISTORY_RETENTION_DAYS:-365}
       MAX_SCHEDULES_PER_USER: ${MAX_SCHEDULES_PER_USER:-10}
@@ -206,9 +208,9 @@ docker compose pull && docker compose up -d
 ## Pricing
 
 - **Free** — core profiles, PHP2Shell Check, PDF/Markdown reports, scan history. No card required.
-- **Premium** — $79/month: all nine add-on modules, daily/weekly recurring scans, change detection and alerts, and the remediation playbook.
+- **Premium** — $20/month or $200/year (two months free): all nine add-on modules, daily/weekly recurring scans, change detection and alerts, the remediation playbook, and email support.
 
-The prices shown in the app are display values (`src/shared/pricing.ts`). Create the matching recurring Price in Stripe and set `STRIPE_PRICE_ID`; Stripe remains the billing source of truth. Premium can also be granted manually by an admin in self-hosted mode.
+The prices shown in the app are display values (`src/shared/pricing.ts`). Create matching monthly and annual recurring Prices in Stripe and set `STRIPE_PRICE_ID` and `STRIPE_ANNUAL_PRICE_ID`; Stripe remains the billing source of truth. Premium can also be granted manually by an admin in self-hosted mode.
 
 ## Configuration
 
@@ -239,7 +241,8 @@ The prices shown in the app are display values (`src/shared/pricing.ts`). Create
 | `SCAN_HISTORY_RETENTION_DAYS` | web | `365` | Days of scan-history metadata to keep (`0` disables sweeping) |
 | `MAX_SCHEDULES_PER_USER` | web | `10` | Maximum recurring scans per Premium user |
 | `ADMIN_DIGEST_ENABLED` / `ADMIN_DIGEST_HOUR` / `ADMIN_DIGEST_RECIPIENTS` | web | `false` / `8` / *(empty)* | Daily admin digest of signups + scan activity (UTC hour; empty recipients = all admins) |
-| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_ID`, `STRIPE_PORTAL_RETURN_URL` | web | *(empty)* | Stripe billing (hosted mode). `portal_return_url` optional, defaults to `/account` |
+| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_ID`, `STRIPE_ANNUAL_PRICE_ID`, `STRIPE_PORTAL_RETURN_URL` | web | *(empty)* | Stripe billing (hosted mode). Monthly and annual Prices are both required in hosted mode. `portal_return_url` optional, defaults to `/account` |
+| `SUPPORT_EMAIL` | web | *(empty)* | Paid-subscriber support address shown on `/support`; set it to enable the Premium support contact |
 | `ENABLED_MODULES` | both | *(empty)* | Comma-separated paid module ids to unlock (deployment ceiling) |
 | `DOH_ENDPOINT` | worker | `https://cloudflare-dns.com/dns-query` | DNS-over-HTTPS JSON endpoint used for DNSSEC checks |
 | `IP_INTEL_ENDPOINT` | worker | `https://ipwho.is` | No-key IP geolocation endpoint used by `infra-intel` |

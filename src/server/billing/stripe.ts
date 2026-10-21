@@ -18,10 +18,18 @@ export function getStripe(config: WebConfig = getWebConfig()): Stripe {
 /** Stripe statuses that keep Premium active (cancel-at-period-end keeps `active`). */
 const ACTIVE_STATUSES = new Set(['active', 'trialing', 'past_due']);
 
-export async function createCheckoutSession(userId: number, email: string, customerId: string | null, config: WebConfig = getWebConfig()): Promise<string | null> {
+export async function createCheckoutSession(
+  userId: number,
+  email: string,
+  customerId: string | null,
+  interval: 'monthly' | 'annual' = 'monthly',
+  config: WebConfig = getWebConfig(),
+): Promise<string | null> {
+  const price = interval === 'annual' ? config.stripe.annualPriceId : config.stripe.priceId;
+  if (!price) throw new Error(`${interval} billing is not configured.`);
   const session = await getStripe(config).checkout.sessions.create({
     mode: 'subscription',
-    line_items: [{ price: config.stripe.priceId, quantity: 1 }],
+    line_items: [{ price, quantity: 1 }],
     customer: customerId ?? undefined,
     customer_email: customerId ? undefined : email,
     client_reference_id: String(userId),

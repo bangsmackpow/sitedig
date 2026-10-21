@@ -26,6 +26,11 @@ export default function LoginPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const nextPath = (): string => {
+    const next = new URLSearchParams(window.location.search).get('next');
+    return next && next.startsWith('/') && !next.startsWith('//') ? next : '/';
+  };
+
   const submitCredentials = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -44,7 +49,7 @@ export default function LoginPage() {
         setStep('mfa');
         return;
       }
-      router.push('/');
+      router.push(nextPath());
       router.refresh();
     } catch (err) {
       setError((err as Error).message);
@@ -59,7 +64,7 @@ export default function LoginPage() {
     setBusy(true);
     try {
       await apiFetch('/api/auth/mfa/verify', { method: 'POST', body: JSON.stringify({ ticket, code, method }) });
-      router.push('/');
+      router.push(nextPath());
       router.refresh();
     } catch (err) {
       setError((err as Error).message);

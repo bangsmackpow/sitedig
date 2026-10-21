@@ -52,6 +52,16 @@ export default function AuthNav() {
             Admin
           </Link>
         )}
+        {!user.premium && user.role !== 'admin' && (
+          <Link className="link" href="/account">
+            Upgrade to Premium
+          </Link>
+        )}
+        {user.premium && (
+          <Link className="link" href="/support">
+            Support
+          </Link>
+        )}
         <Link className="link" href="/pricing">
           Pricing
         </Link>

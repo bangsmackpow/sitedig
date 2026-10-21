@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { apiFetch, type MePayload } from '@/app/lib/api';
-import { PREMIUM_MONTHLY_USD } from '@/shared/pricing';
+import { PREMIUM_ANNUAL_USD, PREMIUM_MONTHLY_USD } from '@/shared/pricing';
 
 interface TotpSetup {
   secret: string;
@@ -30,7 +30,7 @@ export default function AccountPage() {
       setMe(await apiFetch<MePayload>('/api/auth/me'));
     } catch (e) {
       if ((e as { status?: number }).status === 401) {
-        router.replace('/login');
+        router.replace('/login?next=%2Faccount');
         return;
       }
       setError((e as Error).message);
@@ -41,11 +41,14 @@ export default function AccountPage() {
     load();
   }, [load]);
 
-  const upgrade = async () => {
+  const upgrade = async (interval: 'monthly' | 'annual') => {
     setBusy(true);
     setError(null);
     try {
-      const data = await apiFetch<{ url: string }>('/api/billing/checkout', { method: 'POST' });
+      const data = await apiFetch<{ url: string }>('/api/billing/checkout', {
+        method: 'POST',
+        body: JSON.stringify({ interval }),
+      });
       window.location.href = data.url;
     } catch (e) {
       setError((e as Error).message);
@@ -199,7 +202,11 @@ export default function AccountPage() {
         <p>
           {me.user.premium ? <span className="pill active">Premium</span> : <span className="pill info">Free</span>}
           {me.user.role === 'admin' && <span style={{ marginLeft: 8 }} className="pill info">Admin</span>}
-          {!me.user.premium && <span className="text-muted" style={{ marginLeft: 8 }}>Premium is ${PREMIUM_MONTHLY_USD}/month.</span>}
+          {!me.user.premium && (
+            <span className="text-muted" style={{ marginLeft: 8 }}>
+              Premium is ${PREMIUM_MONTHLY_USD}/month or ${PREMIUM_ANNUAL_USD}/year.
+            </span>
+          )}
         </p>
       </div>
 
@@ -216,14 +223,24 @@ export default function AccountPage() {
 
       <div className="actions">
         {!me.user.premium && me.user.status !== 'deletion_pending' && (
-          <button className="button" onClick={upgrade} disabled={busy}>
-            Upgrade to Premium — ${PREMIUM_MONTHLY_USD}/mo
-          </button>
+          <>
+            <button className="button" onClick={() => upgrade('monthly')} disabled={busy}>
+              Upgrade to Premium — ${PREMIUM_MONTHLY_USD}/mo
+            </button>
+            <button className="button secondary" onClick={() => upgrade('annual')} disabled={busy}>
+              Upgrade to Premium — ${PREMIUM_ANNUAL_USD}/yr (2 months free)
+            </button>
+          </>
         )}
         {sub && (
           <button className="button secondary" onClick={openPortal} disabled={busy}>
             Manage billing
           </button>
+        )}
+        {me.user.premium && (
+          <Link className="button secondary" href="/support">
+            Premium support
+          </Link>
         )}
         {me.user.role === 'admin' && (
           <Link className="button secondary" href="/admin">

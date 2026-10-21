@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { PREMIUM_MONTHLY_USD, PREMIUM_PLAN_NAME } from '@/shared/pricing';
+import { PREMIUM_ANNUAL_USD, PREMIUM_MONTHLY_USD, PREMIUM_PLAN_NAME } from '@/shared/pricing';
 
 const premiumModules = [
   'Asset & DNS discovery',
@@ -47,7 +47,7 @@ export default function PricingPage() {
             ${PREMIUM_MONTHLY_USD}
             <span className="price-period">/month</span>
           </p>
-          <p className="hint">Billed monthly through Stripe. Cancel anytime.</p>
+          <p className="hint">Or ${PREMIUM_ANNUAL_USD}/year — two months free. Cancel anytime.</p>
           <ul className="pricing-list">
             <li>Everything in Free</li>
             {premiumModules.map((feature) => (
@@ -59,9 +59,15 @@ export default function PricingPage() {
           </ul>
           <div className="actions">
             <Link className="button" href="/account">
-              Upgrade in your account
+              Upgrade to Premium
+            </Link>
+            <Link className="button secondary" href="/register?plan=premium">
+              Create account to upgrade
             </Link>
           </div>
+          <p className="hint" style={{ marginTop: 10 }}>
+            Already registered? Choose monthly or annual billing in your account.
+          </p>
         </section>
       </div>
 

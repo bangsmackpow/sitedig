@@ -44,6 +44,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <Link className="link" href="/pricing">
             Pricing
           </Link>
+          {' · '}
+          <Link className="link" href="/acceptable-use">
+            Acceptable Use
+          </Link>
+          {' · '}
+          <Link className="link" href="/support">
+            Support
+          </Link>
         </footer>
       </body>
     </html>

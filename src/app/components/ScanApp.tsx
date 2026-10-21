@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { describeProfile } from '@/shared/profile-info';
 import type { CustomScanOptions, ModuleId, PublicJobView, ScanProfile, ToolName } from '@/shared/types';
 import { getCsrfToken } from '@/app/lib/api';
@@ -500,7 +501,13 @@ export default function ScanApp() {
             </ul>
             <div className="consent-row">
               <input id="consent" type="checkbox" checked={consentChecked} onChange={(e) => setConsentChecked(e.target.checked)} />
-              <label htmlFor="consent">I own this target or have explicit authorization to scan it, and I accept these terms.</label>
+              <label htmlFor="consent">
+                I own this target or have explicit authorization to scan it, and I accept the{' '}
+                <Link className="link" href="/acceptable-use" target="_blank" rel="noreferrer">
+                  Acceptable Use Policy
+                </Link>
+                .
+              </label>
             </div>
             <div className="modal-actions">
               <button className="button secondary" onClick={closeConsent} disabled={submitting}>
