@@ -198,6 +198,26 @@ describe('buildFindings', () => {
     expect(f?.evidence.join(' ')).toContain('8.4.27');
   });
 
+  it('flags PHP 8.3.7 behind Cloudflare from X-Powered-By', () => {
+    const findings = buildFindings(
+      base({
+        http: {
+          status: 200,
+          finalUrl: 'https://curtislamasters.com/',
+          server: 'cloudflare',
+          poweredBy: 'PHP/8.3.7',
+          headers: { server: 'cloudflare', 'x-powered-by': 'PHP/8.3.7' },
+          redirects: [],
+          error: null,
+        },
+      }),
+    );
+    const f = findings.find((x) => x.title.includes('PHP2Shell'));
+    expect(f?.severity).toBe('critical');
+    expect(f?.title).toContain('8.3.7');
+    expect(f?.evidence.join(' ')).toContain('8.3.36');
+  });
+
   it('flags PHP with a hidden version as medium', () => {
     const findings = buildFindings(
       base({

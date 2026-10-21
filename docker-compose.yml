@@ -53,7 +53,6 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
-    pids_limit: 256
     logging:
       driver: json-file
       options:
@@ -70,6 +69,7 @@ services:
         limits:
           cpus: "0.5"
           memory: 512M
+          pids: 256
 
   worker:
     image: ${SITEDIG_IMAGE:-ghcr.io/bangsmackpow/sitedig}:${SITEDIG_TAG:-latest}
@@ -103,7 +103,6 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
-    pids_limit: 512
     logging:
       driver: json-file
       options:
@@ -120,6 +119,7 @@ services:
         limits:
           cpus: "1.0"
           memory: 1G
+          pids: 512
 
 networks:
   backend:
