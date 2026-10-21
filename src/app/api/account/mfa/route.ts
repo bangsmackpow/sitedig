@@ -13,6 +13,7 @@ import {
   disableTotp,
   enableTotp,
   generateTotpSecret,
+  getPendingTotpSecret,
   otpauthUri,
   replaceRecoveryCodes,
   setEmailMfaEnabled,
@@ -88,9 +89,10 @@ export async function POST(req: NextRequest) {
       return json({ totp: { secret, otpauthUri: uri, qrDataUrl } });
     }
     case 'totp-confirm': {
-      if (!user.totp_secret) return errorJson('Start TOTP setup first.', 400, 'no_pending_secret');
-      if (!verifyTotp(user.totp_secret, input.code)) return errorJson('That code is incorrect. Check your authenticator clock.', 400, 'invalid_code');
-      enableTotp(user.id);
+      const pending = getPendingTotpSecret(user.id);
+      if (!pending) return errorJson('Start TOTP setup first.', 400, 'no_pending_secret');
+      if (!verifyTotp(pending, input.code)) return errorJson('That code is incorrect. Check your authenticator clock.', 400, 'invalid_code');
+      enableTotp(user.id, pending);
       const recoveryCodes = replaceRecoveryCodes(user.id);
       auditLog({ actorUserId: user.id, action: 'mfa.totp_enabled', targetUserId: user.id });
       return json({ mfa: stateFor(user.id), recoveryCodes });

@@ -5,7 +5,7 @@ import path from 'node:path';
 import { getDb, resetDbForTests } from '../src/server/db';
 import { hashPassword, verifyPassword, validatePasswordStrength } from '../src/server/auth/passwords';
 import { createSession, getSessionUser, revokeAllUserSessions, sessionCookieName } from '../src/server/auth/sessions';
-import { createUser, getUserByEmail, getUserById, setStripeCustomerId, updateUserStatus } from '../src/server/users';
+import { countActiveAdmins, createUser, getUserByEmail, getUserById, setStripeCustomerId, updateUserStatus } from '../src/server/users';
 import { grantEntitlement, revokeEntitlement, isPremium, canUseModule, hasEntitlement, PREMIUM_KEY } from '../src/server/entitlements';
 import { register, login, requestPasswordReset, resetPassword } from '../src/server/auth/service';
 import { createEmailToken, consumeEmailToken } from '../src/server/email/tokens';
@@ -96,6 +96,14 @@ describe('users', () => {
     expect(getUserByEmail('nobody@example.com')).toBeNull();
     expect(getUserById(9999)).toBeNull();
   });
+
+  it('counts other active admins for last-admin protection', () => {
+    const first = createUser({ email: 'admin1@example.com', passwordHash: 'x', role: 'admin', verified: true });
+    const second = createUser({ email: 'admin2@example.com', passwordHash: 'x', role: 'admin', verified: true });
+    expect(countActiveAdmins(first.id)).toBe(1);
+    updateUserStatus(second.id, 'disabled');
+    expect(countActiveAdmins(first.id)).toBe(0);
+  });
 });
 
 describe('sessions', () => {
@@ -113,6 +121,15 @@ describe('sessions', () => {
     const user = createUser({ email: 'carol@example.com', passwordHash: 'x', verified: true });
     const { token } = createSession(user.id);
     updateUserStatus(user.id, 'disabled');
+    expect(getSessionUser(token)).toBeNull();
+  });
+
+  it('expires sessions after the idle window', () => {
+    const user = createUser({ email: 'idle@example.com', passwordHash: 'x', verified: true });
+    const { token } = createSession(user.id);
+    getDb()
+      .prepare('UPDATE sessions SET last_seen_at = ? WHERE user_id = ?')
+      .run(new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString(), user.id);
     expect(getSessionUser(token)).toBeNull();
   });
 

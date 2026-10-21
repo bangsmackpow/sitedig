@@ -12,6 +12,8 @@ export interface UserRow {
   mfa_email_enabled: number;
   totp_secret: string | null;
   totp_enabled_at: string | null;
+  totp_pending_secret: string | null;
+  totp_pending_created_at: string | null;
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
@@ -73,6 +75,14 @@ export function isUserVerified(user: UserRow): boolean {
 
 export function updateUserStatus(id: number, status: UserRow['status']): void {
   getDb().prepare('UPDATE users SET status = ?, updated_at = ? WHERE id = ?').run(status, new Date().toISOString(), id);
+}
+
+/** Count usable admin accounts other than `excludeId`. */
+export function countActiveAdmins(excludeId?: number): number {
+  const row = getDb()
+    .prepare(`SELECT COUNT(*) AS c FROM users WHERE role = 'admin' AND deleted_at IS NULL AND status != 'disabled' AND id != ?`)
+    .get(excludeId ?? -1) as { c: number };
+  return row.c;
 }
 
 export function setStripeCustomerId(id: number, customerId: string): void {

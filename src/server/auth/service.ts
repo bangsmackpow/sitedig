@@ -4,6 +4,7 @@ import { createMailer, buildVerificationLink, buildPasswordResetLink } from '../
 import { passwordResetEmail, verificationEmail } from '../email/templates';
 import { consumeEmailToken, createEmailToken, invalidateEmailTokens } from '../email/tokens';
 import { createUser, getUserByEmail, getUserById, setUserVerified, userExistsByEmail, type UserRow } from '../users';
+import { invalidateMfaChallenges } from './mfa';
 import { hashPassword, validatePasswordStrength, verifyPassword } from './passwords';
 import { revokeAllUserSessions } from './sessions';
 
@@ -65,12 +66,19 @@ export async function register(email: string, password: string): Promise<{ user:
   return { user, needsVerification: !verified };
 }
 
+// Fixed scrypt hash used to keep unknown-account login timing close to the
+// normal verification path (prevents easy account enumeration).
+const DUMMY_PASSWORD_HASH =
+  'scrypt$1$00000000000000000000000000000000$87957bd814804adcc944eb9ec4114e545140ecf983f1743974dc56f2759c89bb6c2ab69eb203d46242776baced0f42709bfe2c3043f320da6cf2f7a8805b89a2';
+
 export async function login(email: string, password: string): Promise<UserRow> {
   const user = getUserByEmail(email);
-  if (!user) throw new AuthError('Invalid email or password.', 401);
-  if (user.status === 'disabled') throw new AuthError('Invalid email or password.', 401);
+  if (!user) {
+    await verifyPassword(password, DUMMY_PASSWORD_HASH);
+    throw new AuthError('Invalid email or password.', 401);
+  }
   const valid = await verifyPassword(password, user.password_hash);
-  if (!valid) throw new AuthError('Invalid email or password.', 401);
+  if (!valid || user.status === 'disabled') throw new AuthError('Invalid email or password.', 401);
   return user;
 }
 
@@ -111,5 +119,6 @@ export async function resetPassword(userId: number, token: string, newPassword: 
   getDb().prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?').run(await hashPassword(newPassword), new Date().toISOString(), userId);
   invalidateEmailTokens(userId, 'password_reset');
   revokeAllUserSessions(userId);
+  invalidateMfaChallenges(userId);
   auditLog({ actorUserId: userId, action: 'user.password_reset', targetUserId: userId });
 }

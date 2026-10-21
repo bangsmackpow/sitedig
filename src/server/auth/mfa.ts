@@ -96,6 +96,7 @@ export function otpauthUri(secret: string, account: string, issuer = APP_NAME): 
 // --- Email OTP + recovery codes --------------------------------------------
 
 const CODE_TTL_MS = 10 * 60 * 1000;
+const PENDING_TOTP_TTL_MS = 10 * 60 * 1000;
 export const MFA_MAX_ATTEMPTS = 5;
 
 export function generateEmailOtp(): string {
@@ -136,24 +137,60 @@ export function setEmailMfaEnabled(userId: number, enabled: boolean): void {
   getDb().prepare('UPDATE users SET mfa_email_enabled = ?, updated_at = ? WHERE id = ?').run(enabled ? 1 : 0, new Date().toISOString(), userId);
 }
 
-/** Store a pending (unconfirmed) TOTP secret. */
+/** Store an unconfirmed TOTP secret without touching the active factor. */
 export function setPendingTotpSecret(userId: number, secret: string): void {
-  getDb().prepare('UPDATE users SET totp_secret = ?, totp_enabled_at = NULL, updated_at = ? WHERE id = ?').run(secret, new Date().toISOString(), userId);
+  const now = new Date().toISOString();
+  getDb()
+    .prepare('UPDATE users SET totp_pending_secret = ?, totp_pending_created_at = ?, updated_at = ? WHERE id = ?')
+    .run(secret, now, now, userId);
 }
 
-export function enableTotp(userId: number): void {
-  getDb().prepare('UPDATE users SET totp_enabled_at = ?, updated_at = ? WHERE id = ?').run(new Date().toISOString(), new Date().toISOString(), userId);
+/** Return a pending secret only while its enrollment window is still valid. */
+export function getPendingTotpSecret(userId: number): string | null {
+  const row = getDb()
+    .prepare('SELECT totp_pending_secret AS secret, totp_pending_created_at AS createdAt FROM users WHERE id = ?')
+    .get(userId) as { secret: string | null; createdAt: string | null } | undefined;
+  if (!row?.secret || !row.createdAt) return null;
+  const createdAt = Date.parse(row.createdAt);
+  if (!Number.isFinite(createdAt) || Date.now() - createdAt > PENDING_TOTP_TTL_MS) return null;
+  return row.secret;
+}
+
+/** Promote a confirmed pending secret, replacing any previous active secret. */
+export function enableTotp(userId: number, secret: string): void {
+  const now = new Date().toISOString();
+  getDb()
+    .prepare(
+      `UPDATE users SET totp_secret = ?, totp_enabled_at = ?, totp_pending_secret = NULL,
+         totp_pending_created_at = NULL, updated_at = ? WHERE id = ?`,
+    )
+    .run(secret, now, now, userId);
 }
 
 export function disableTotp(userId: number): void {
-  getDb().prepare('UPDATE users SET totp_secret = NULL, totp_enabled_at = NULL, updated_at = ? WHERE id = ?').run(new Date().toISOString(), userId);
+  getDb()
+    .prepare(
+      `UPDATE users SET totp_secret = NULL, totp_enabled_at = NULL,
+         totp_pending_secret = NULL, totp_pending_created_at = NULL, updated_at = ? WHERE id = ?`,
+    )
+    .run(new Date().toISOString(), userId);
 }
 
 export function disableAllMfa(userId: number): void {
   getDb()
-    .prepare('UPDATE users SET mfa_email_enabled = 0, totp_secret = NULL, totp_enabled_at = NULL, updated_at = ? WHERE id = ?')
+    .prepare(
+      `UPDATE users SET mfa_email_enabled = 0, totp_secret = NULL, totp_enabled_at = NULL,
+         totp_pending_secret = NULL, totp_pending_created_at = NULL, updated_at = ? WHERE id = ?`,
+    )
     .run(new Date().toISOString(), userId);
   getDb().prepare('DELETE FROM recovery_codes WHERE user_id = ?').run(userId);
+}
+
+/** Invalidate any pre-session MFA tickets, e.g. after a password reset. */
+export function invalidateMfaChallenges(userId: number): void {
+  getDb()
+    .prepare('UPDATE mfa_challenges SET used_at = ? WHERE user_id = ? AND used_at IS NULL')
+    .run(new Date().toISOString(), userId);
 }
 
 export function countUnusedRecoveryCodes(userId: number): number {
@@ -181,8 +218,10 @@ export function consumeRecoveryCode(userId: number, code: string): boolean {
     .prepare('SELECT id FROM recovery_codes WHERE user_id = ? AND code_hash = ? AND used_at IS NULL')
     .get(userId, hashSecret(normalized)) as { id: number } | undefined;
   if (!row) return false;
-  getDb().prepare('UPDATE recovery_codes SET used_at = ? WHERE id = ?').run(new Date().toISOString(), row.id);
-  return true;
+  const result = getDb()
+    .prepare('UPDATE recovery_codes SET used_at = ? WHERE id = ? AND used_at IS NULL')
+    .run(new Date().toISOString(), row.id);
+  return result.changes > 0;
 }
 
 // --- Login challenges ------------------------------------------------------
@@ -224,6 +263,9 @@ export function createLoginChallenge(user: UserRow): CreatedChallenge {
   const emailCode = methods.includes('email') ? generateEmailOtp() : null;
   const now = new Date().toISOString();
   getDb()
+    .prepare('UPDATE mfa_challenges SET used_at = ? WHERE user_id = ? AND used_at IS NULL')
+    .run(now, user.id);
+  getDb()
     .prepare(
       `INSERT INTO mfa_challenges (user_id, ticket_hash, methods_json, code_hash, expires_at, attempts, created_at)
        VALUES (?, ?, ?, ?, ?, 0, ?)`,
@@ -244,8 +286,9 @@ export function findChallenge(ticket: string): MfaChallengeRow | null {
 /** Issue a fresh email code for an existing challenge (resend). */
 export function refreshEmailCode(challengeId: number): string | null {
   const code = generateEmailOtp();
+  // Do not reset attempts: a resend must not bypass the challenge lockout.
   getDb()
-    .prepare('UPDATE mfa_challenges SET code_hash = ?, expires_at = ?, attempts = 0 WHERE id = ?')
+    .prepare('UPDATE mfa_challenges SET code_hash = ?, expires_at = ? WHERE id = ?')
     .run(hashSecret(code), new Date(Date.now() + CODE_TTL_MS).toISOString(), challengeId);
   return code;
 }

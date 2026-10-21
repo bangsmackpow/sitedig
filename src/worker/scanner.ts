@@ -243,6 +243,7 @@ export class ScannerService {
   private readonly ipIntelImpl: NonNullable<ScannerDeps['ipIntel']>;
   private readonly aborts = new Map<string, AbortController>();
   private readonly validatedTargets = new Map<string, ResolveResult>();
+  private readonly notifications = new Set<Promise<void>>();
   private ttlTimer: NodeJS.Timeout | null = null;
 
   constructor(
@@ -303,9 +304,11 @@ export class ScannerService {
         onStart: (job) => this.log.info('job_started', { jobId: job.id, profile: job.profile }),
         onFinish: (job) => {
           this.log.info('job_finished', { jobId: job.id, status: job.status });
-          // Persist scan history (best-effort, fire-and-forget) then drop the
-          // cached resolution so the map does not grow without bound.
-          void this.notifyScanEvent(job);
+          // Persist scan history while tracking the in-flight notification so
+          // graceful shutdown can wait for it.
+          const notification = this.notifyScanEvent(job);
+          this.notifications.add(notification);
+          void notification.finally(() => this.notifications.delete(notification));
           this.validatedTargets.delete(job.id);
         },
         onReject: (job, reason) => this.log.warn('job_rejected', { jobId: job.id, reason }),
@@ -326,9 +329,15 @@ export class ScannerService {
     });
   }
 
-  stop(): void {
+  async stop(timeoutMs = 10_000): Promise<void> {
     if (this.ttlTimer) clearInterval(this.ttlTimer);
-    this.log.info('scanner_stopping', {});
+    this.queue.cancelAllQueued();
+    for (const controller of this.aborts.values()) controller.abort(new Error('Worker is shutting down.'));
+    const deadline = Date.now() + timeoutMs;
+    while ((this.queue.activeCount > 0 || this.notifications.size > 0) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    this.log.info('scanner_stopping', { active: this.queue.activeCount, pending: this.queue.pendingCount });
   }
 
   /** Assemble the compact, report-free summary persisted as scan history. */
@@ -560,13 +569,14 @@ export class ScannerService {
     this.aborts.set(jobId, controller);
     const startedAt = Date.now();
     const jobDir = path.join(this.config.artifactDir, jobId);
+    let timeoutHandle: NodeJS.Timeout | null = null;
 
     try {
       const effectiveTimeout = Math.min(
         this.config.scanTimeoutMs,
         job.custom?.timeoutMs ?? this.config.scanTimeoutMs,
       );
-      const timeoutHandle = setTimeout(() => controller.abort(new Error('Scan exceeded the maximum allowed duration.')), effectiveTimeout);
+      timeoutHandle = setTimeout(() => controller.abort(new Error('Scan exceeded the maximum allowed duration.')), effectiveTimeout);
       timeoutHandle.unref?.();
 
       this.log.info('job_running', { jobId, host: job.target.host, profile: job.profile });
@@ -844,7 +854,7 @@ export class ScannerService {
                 tool: step.tool,
                 exitCode: result.exitCode,
                 timedOut: result.timedOut,
-                outputTail: result.output.slice(-2000),
+                outputTail: this.redactError(result.output.slice(-2000)) ?? '',
                 truncated: result.truncated,
               });
             }
@@ -932,12 +942,12 @@ export class ScannerService {
           }
         } catch (e) {
           if (controller.signal.aborted) {
-            record.error = (e as Error).message;
+            record.error = this.redactError((e as Error).message);
             record.timedOut = true;
           } else if (isJobCancelled(job)) {
             record.error = 'Cancelled';
           } else {
-            record.error = (e as Error).message;
+            record.error = this.redactError((e as Error).message);
           }
         }
         record.finishedAt = new Date().toISOString();
@@ -1067,12 +1077,21 @@ export class ScannerService {
         limitations: LIMITATIONS,
       };
 
-      clearTimeout(timeoutHandle);
-
       const markdownPath = path.join(jobDir, 'report.md');
       const pdfPath = path.join(jobDir, 'report.pdf');
       fs.writeFileSync(markdownPath, renderMarkdown(report), 'utf8');
-      await renderPdf(report, pdfPath, { reportId: job.id });
+      let pdfTimer: NodeJS.Timeout | null = null;
+      try {
+        await Promise.race([
+          renderPdf(report, pdfPath, { reportId: job.id }),
+          new Promise<never>((_, reject) => {
+            pdfTimer = setTimeout(() => reject(new Error('PDF rendering exceeded the time limit.')), 60_000);
+            pdfTimer.unref?.();
+          }),
+        ]);
+      } finally {
+        if (pdfTimer) clearTimeout(pdfTimer);
+      }
 
       job.report = report;
       job.artifacts = {
@@ -1094,6 +1113,7 @@ export class ScannerService {
       this.log.error('job_failed', { jobId, error: message });
       await this.cleanupDir(jobDir);
     } finally {
+      if (timeoutHandle) clearTimeout(timeoutHandle);
       this.aborts.delete(jobId);
     }
   }

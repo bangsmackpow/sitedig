@@ -92,6 +92,28 @@ export async function runTool(
   let output = '';
   let truncated = false;
 
+  // Never hand worker secrets (service token, API tokens) to scanner binaries.
+  const env: Record<string, string> = {};
+  for (const key of [
+    'PATH',
+    'HOME',
+    'USER',
+    'LOGNAME',
+    'LANG',
+    'LC_ALL',
+    'LC_CTYPE',
+    'TZ',
+    'TMPDIR',
+    'TEMP',
+    'TMP',
+    'RUBYOPT',
+    'SSL_CERT_FILE',
+    'SSL_CERT_DIR',
+  ]) {
+    const value = process.env[key];
+    if (value !== undefined) env[key] = value;
+  }
+
   const child = execa(file, [...prefix, ...args], {
     all: true,
     buffer: false,
@@ -99,6 +121,8 @@ export async function runTool(
     detached: process.platform !== 'win32',
     killSignal: 'SIGTERM',
     signal: opts.signal,
+    env,
+    extendEnv: false,
   });
 
   child.all?.on('data', (chunk: Buffer) => {

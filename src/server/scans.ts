@@ -362,7 +362,8 @@ export function listAdminScans(filters: AdminScanFilters = {}): ScanRow[] {
     params.push(`%${filters.user.toLowerCase()}%`);
   }
   const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
-  const limit = Math.min(Math.max(filters.limit ?? 200, 1), 2000);
+  const requested = filters.limit !== undefined && Number.isFinite(filters.limit) ? Math.floor(filters.limit) : 200;
+  const limit = Math.min(Math.max(requested, 1), 2000);
   return getDb().prepare(`SELECT * FROM scans ${where} ORDER BY created_at DESC LIMIT ?`).all(...params, limit) as ScanRow[];
 }
 

@@ -259,6 +259,13 @@ export function main(): void {
   }
   const config = getWorkerConfig();
   const log = createLogger({ LOG_LEVEL: config.logLevel });
+  process.on('unhandledRejection', (reason) => {
+    log.error('unhandled_rejection', { error: reason instanceof Error ? reason.message : String(reason) });
+  });
+  process.on('uncaughtException', (error) => {
+    log.error('uncaught_exception', { error: error.message });
+    process.exit(1);
+  });
   if (!config.serviceToken || config.serviceToken.length < 32) {
     log.error('scan_service_token_required', { reason: 'Set SCAN_SERVICE_TOKEN to a long random value (at least 32 characters).' });
     process.exit(1);
@@ -279,11 +286,11 @@ export function main(): void {
     });
   });
 
-  const shutdown = () => {
+  const shutdown = async () => {
     log.info('worker_shutting_down', {});
-    service.stop();
+    await service.stop(10_000);
     server.close(() => process.exit(0));
-    setTimeout(() => process.exit(0), 5000).unref();
+    setTimeout(() => process.exit(0), 5_000).unref();
   };
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);

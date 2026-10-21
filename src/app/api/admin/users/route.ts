@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
   await ensureInitialized();
   const guard = await guardAdmin(req);
   if (!guard.ok) return guard.response;
-  const q = new URL(req.url).searchParams.get('q') ?? undefined;
+  const q = new URL(req.url).searchParams.get('q')?.slice(0, 254) ?? undefined;
   return json({ users: listUsers(q).map(view) });
 }
 

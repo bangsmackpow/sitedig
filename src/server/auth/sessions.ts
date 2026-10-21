@@ -4,6 +4,8 @@ import { getDb } from '../db';
 import type { UserRow } from '../users';
 
 export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+/** Sessions expire after this much inactivity even if the absolute TTL remains. */
+export const SESSION_IDLE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 export function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
@@ -43,14 +45,16 @@ export function getSessionUser(token: string | undefined): SessionUser | null {
   if (!token) return null;
   const row = getDb()
     .prepare(
-      `SELECT s.id AS session_id, u.*
+      `SELECT s.id AS session_id, s.last_seen_at AS session_last_seen_at, u.*
        FROM sessions s
        JOIN users u ON u.id = s.user_id
        WHERE s.token_hash = ? AND s.revoked_at IS NULL`,
     )
-    .get(hashToken(token)) as (UserRow & { session_id: number; expires_at: string }) | undefined;
+    .get(hashToken(token)) as (UserRow & { session_id: number; expires_at: string; session_last_seen_at: string | null }) | undefined;
   if (!row) return null;
-  if (new Date(row.expires_at).getTime() < Date.now()) return null;
+  const now = Date.now();
+  if (new Date(row.expires_at).getTime() < now) return null;
+  if (row.session_last_seen_at && now - Date.parse(row.session_last_seen_at) > SESSION_IDLE_TTL_MS) return null;
   if (row.deleted_at) return null;
   if (row.status === 'disabled') return null;
   return { user: row as UserRow, sessionId: row.session_id };
@@ -119,7 +123,10 @@ export function getRequestToken(req: NextRequest): string | undefined {
  * protocol (which reflects X-Forwarded-Proto behind a reverse proxy).
  */
 export function secureRequest(req: NextRequest): boolean {
-  return req.nextUrl.protocol === 'https:';
+  if (req.nextUrl.protocol === 'https:') return true;
+  // In production, also honor a configured HTTPS public origin when the proxy
+  // does not forward the scheme.
+  return process.env.NODE_ENV === 'production' && (process.env.APP_BASE_URL ?? '').startsWith('https://');
 }
 
 export function setSessionCookie(res: NextResponse, token: string, secure: boolean): void {

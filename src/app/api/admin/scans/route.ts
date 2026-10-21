@@ -1,14 +1,16 @@
 import type { NextRequest } from 'next/server';
 import { ensureInitialized } from '@/server/bootstrap';
-import { json } from '@/server/http';
+import { errorJson, json } from '@/server/http';
 import { guardAdmin } from '@/server/http';
 import { listAdminScans, toScanView, type AdminScanFilters } from '@/server/scans';
 
 export const dynamic = 'force-dynamic';
 
 function csvEscape(value: unknown): string {
-  const s = value === null || value === undefined ? '' : String(value);
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  const raw = value === null || value === undefined ? '' : String(value);
+  // Neutralize spreadsheet formula injection before CSV quoting.
+  const s = /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw;
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
 export async function GET(req: NextRequest) {
@@ -17,14 +19,23 @@ export async function GET(req: NextRequest) {
   if (!guard.ok) return guard.response;
 
   const sp = new URL(req.url).searchParams;
+  for (const key of ['from', 'to']) {
+    const value = sp.get(key);
+    if (value && Number.isNaN(Date.parse(value))) return errorJson(`Invalid ${key} date.`, 400, 'invalid_date');
+  }
+  const limitRaw = sp.get('limit');
+  const limit = limitRaw ? Number(limitRaw) : undefined;
+  if (limit !== undefined && (!Number.isFinite(limit) || limit <= 0)) {
+    return errorJson('Invalid limit.', 400, 'invalid_limit');
+  }
   const filters: AdminScanFilters = {
     from: sp.get('from') ?? undefined,
     to: sp.get('to') ?? undefined,
-    host: sp.get('host') ?? undefined,
-    profile: sp.get('profile') ?? undefined,
-    status: sp.get('status') ?? undefined,
-    user: sp.get('user') ?? undefined,
-    limit: sp.get('limit') ? Number(sp.get('limit')) : undefined,
+    host: sp.get('host')?.slice(0, 255) ?? undefined,
+    profile: sp.get('profile')?.slice(0, 32) ?? undefined,
+    status: sp.get('status')?.slice(0, 32) ?? undefined,
+    user: sp.get('user')?.slice(0, 254) ?? undefined,
+    limit,
   };
 
   const rows = listAdminScans(filters);

@@ -28,6 +28,7 @@ function createResendTransport(config: WebConfig): Mailer {
         method: 'POST',
         headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
         body: JSON.stringify({ from, to: [to], subject, text, ...(html ? { html } : {}) }),
+        signal: AbortSignal.timeout(10_000),
       });
       if (!res.ok) {
         const detail = await res.text().catch(() => '');
@@ -42,6 +43,10 @@ function createSmtpTransport(config: WebConfig): Mailer {
     host: config.smtp.host,
     port: config.smtp.port,
     secure: config.smtp.secure,
+    requireTLS: !config.smtp.secure,
+    connectionTimeout: 10_000,
+    greetingTimeout: 10_000,
+    socketTimeout: 20_000,
     auth: config.smtp.username ? { user: config.smtp.username, pass: config.smtp.password } : undefined,
   });
   return {

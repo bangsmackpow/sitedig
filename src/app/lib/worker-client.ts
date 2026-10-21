@@ -56,7 +56,9 @@ async function request(path: string, init?: RequestInit): Promise<Response> {
   headers.set('accept', 'application/json');
 
   try {
-    const res = await fetch(`${workerUrl}${path}`, { ...init, headers });
+    const timeout = AbortSignal.timeout(15_000);
+    const signal = init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
+    const res = await fetch(`${workerUrl}${path}`, { ...init, headers, signal });
     return res;
   } catch {
     throw new WorkerUnavailableError();

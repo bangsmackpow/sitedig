@@ -62,6 +62,11 @@ export class ScanQueue {
     }
   }
 
+  /** Cancel every job that has not started yet (used during shutdown). */
+  cancelAllQueued(): void {
+    for (const id of [...this.pending]) this.cancelQueued(id);
+  }
+
   /** Cancel a job that has not started yet. */
   cancelQueued(id: string): boolean {
     if (!this.pending.includes(id)) return false;

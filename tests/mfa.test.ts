@@ -12,6 +12,7 @@ import {
   findChallenge,
   generateRecoveryCodes,
   generateTotpSecret,
+  getPendingTotpSecret,
   otpauthUri,
   replaceRecoveryCodes,
   setEmailMfaEnabled,
@@ -109,6 +110,20 @@ describe('recovery codes', () => {
     expect(consumeRecoveryCode(user.id, codes[0])).toBe(false);
     expect(consumeRecoveryCode(user.id, 'ZZZZ-ZZZZ')).toBe(false);
   });
+
+  it('keeps the active TOTP factor while re-enrollment is pending', () => {
+    const user = createUser({ email: 'reenroll@example.com', passwordHash: 'x', verified: true });
+    const first = generateTotpSecret();
+    setPendingTotpSecret(user.id, first);
+    enableTotp(user.id, first);
+
+    const second = generateTotpSecret();
+    setPendingTotpSecret(user.id, second);
+    const current = getUserById(user.id)!;
+    expect(current.totp_enabled_at).not.toBeNull();
+    expect(current.totp_secret).toBe(first);
+    expect(getPendingTotpSecret(user.id)).toBe(second);
+  });
 });
 
 describe('login challenges', () => {
@@ -136,7 +151,7 @@ describe('login challenges', () => {
     const user = createUser({ email: 'totp@example.com', passwordHash: 'x', verified: true });
     const secret = generateTotpSecret();
     setPendingTotpSecret(user.id, secret);
-    enableTotp(user.id);
+    enableTotp(user.id, secret);
 
     const challenge = createLoginChallenge(getUserById(user.id)!);
     expect(challenge.methods).toContain('totp');

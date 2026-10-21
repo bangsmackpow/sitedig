@@ -20,12 +20,14 @@ export function createEmailToken(userId: number, purpose: EmailTokenPurpose, ttl
 
 /** Consume a token; returns true only for a valid, unused, unexpired token. */
 export function consumeEmailToken(userId: number, purpose: EmailTokenPurpose, token: string): boolean {
-  const row = getDb()
-    .prepare(`SELECT id FROM email_tokens WHERE user_id = ? AND purpose = ? AND token_hash = ? AND used_at IS NULL AND expires_at > ?`)
-    .get(userId, purpose, hashEmailToken(token), new Date().toISOString()) as { id: number } | undefined;
-  if (!row) return false;
-  getDb().prepare(`UPDATE email_tokens SET used_at = ? WHERE id = ?`).run(new Date().toISOString(), row.id);
-  return true;
+  const now = new Date().toISOString();
+  const result = getDb()
+    .prepare(
+      `UPDATE email_tokens SET used_at = ?
+       WHERE user_id = ? AND purpose = ? AND token_hash = ? AND used_at IS NULL AND expires_at > ?`,
+    )
+    .run(now, userId, purpose, hashEmailToken(token), now);
+  return result.changes > 0;
 }
 
 export function invalidateEmailTokens(userId: number, purpose: EmailTokenPurpose): void {

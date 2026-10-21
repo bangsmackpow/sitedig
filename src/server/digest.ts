@@ -4,6 +4,7 @@ import { createLogger } from '../shared/logger';
 import { getDb } from './db';
 import { createMailer } from './email/mailer';
 import { digestEmail, type DigestEmailData } from './email/templates';
+import { sweepExpiredAuthData } from './maintenance';
 import { getScanStats, sweepScanHistory } from './scans';
 import { getSetting, setSetting } from './settings';
 
@@ -102,6 +103,18 @@ export async function runScheduledMaintenance(): Promise<void> {
       if (removed > 0) log.info('scan_history_swept', { removed, retentionDays: config.scanHistoryRetentionDays });
     } catch (e) {
       log.warn('scan_history_sweep_failed', { error: (e as Error).message });
+    }
+  }
+
+  const lastAuthCleanup = getSetting('auth_cleanup_last_sweep_at');
+  const authCleanedToday = lastAuthCleanup && new Date(lastAuthCleanup).toISOString().slice(0, 10) === now.toISOString().slice(0, 10);
+  if (!authCleanedToday) {
+    try {
+      const removed = sweepExpiredAuthData(now);
+      setSetting('auth_cleanup_last_sweep_at', now.toISOString());
+      log.info('auth_artifacts_swept', { ...removed });
+    } catch (e) {
+      log.warn('auth_artifacts_sweep_failed', { error: (e as Error).message });
     }
   }
 

@@ -1,16 +1,22 @@
 import { getDb } from './db';
 import { getUserById, hardDeleteUser, updateUserStatus } from './users';
 import { cancelSubscriptionAtPeriodEnd, hasActiveSubscription } from './billing/stripe';
+import { revokeAllUserSessions } from './auth/sessions';
 import { deleteUserScans } from './scans';
 import { auditLog } from './audit';
 
 function purgeUser(userId: number): void {
   // Remove scan history explicitly (the FK only nulls user_id) to honor deletion.
-  deleteUserScans(userId);
-  hardDeleteUser(userId);
+  // Keep the history + account removal atomic.
+  const purge = getDb().transaction(() => {
+    deleteUserScans(userId);
+    hardDeleteUser(userId);
+  });
+  purge();
 }
 
 export async function requestAccountDeletion(userId: number): Promise<void> {
+  revokeAllUserSessions(userId);
   if (hasActiveSubscription(userId)) {
     await cancelSubscriptionAtPeriodEnd(userId);
     updateUserStatus(userId, 'deletion_pending');

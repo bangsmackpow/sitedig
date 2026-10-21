@@ -154,16 +154,16 @@ export async function handleStripeEvent(event: Stripe.Event): Promise<void> {
 
 export async function cancelSubscriptionAtPeriodEnd(userId: number): Promise<void> {
   const row = getDb()
-    .prepare('SELECT stripe_subscription_id FROM subscriptions WHERE user_id = ? AND status IN (?, ?) ORDER BY id DESC')
-    .get(userId, 'active', 'trialing') as { stripe_subscription_id: string } | undefined;
+    .prepare('SELECT stripe_subscription_id FROM subscriptions WHERE user_id = ? AND status IN (?, ?, ?) ORDER BY id DESC')
+    .get(userId, 'active', 'trialing', 'past_due') as { stripe_subscription_id: string } | undefined;
   if (!row) return;
   await getStripe().subscriptions.update(row.stripe_subscription_id, { cancel_at_period_end: true });
 }
 
 export function hasActiveSubscription(userId: number): boolean {
   const row = getDb()
-    .prepare('SELECT id FROM subscriptions WHERE user_id = ? AND status IN (?, ?)')
-    .get(userId, 'active', 'trialing') as { id: number } | undefined;
+    .prepare('SELECT id FROM subscriptions WHERE user_id = ? AND status IN (?, ?, ?)')
+    .get(userId, 'active', 'trialing', 'past_due') as { id: number } | undefined;
   return Boolean(row);
 }
 

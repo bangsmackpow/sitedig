@@ -256,6 +256,15 @@ ALTER TABLE scans ADD COLUMN schedule_id INTEGER
 CREATE INDEX IF NOT EXISTS idx_scans_schedule ON scans(schedule_id);
 `,
   },
+  {
+    version: 5,
+    sql: `
+-- Keep an in-progress TOTP enrollment separate from the active secret so
+-- starting re-enrollment cannot silently disable an existing second factor.
+ALTER TABLE users ADD COLUMN totp_pending_secret TEXT;
+ALTER TABLE users ADD COLUMN totp_pending_created_at TEXT;
+`,
+  },
 ];
 
 export function openDatabase(dbPath: string): Db {
