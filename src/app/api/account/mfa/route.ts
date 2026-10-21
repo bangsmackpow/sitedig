@@ -9,6 +9,7 @@ import { verifyCsrfOrOrigin } from '@/server/auth/csrf';
 import { verifyPassword } from '@/server/auth/passwords';
 import { rateLimit } from '@/server/auth/rate-limit';
 import {
+  consumeRecoveryCode,
   countUnusedRecoveryCodes,
   disableTotp,
   enableTotp,
@@ -28,8 +29,8 @@ const schema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('email'), enabled: z.boolean(), password: z.string().min(1).max(256) }).strict(),
   z.object({ action: z.literal('totp-begin'), password: z.string().min(1).max(256) }).strict(),
   z.object({ action: z.literal('totp-confirm'), code: z.string().min(6).max(8) }).strict(),
-  z.object({ action: z.literal('totp-disable'), password: z.string().min(1).max(256) }).strict(),
-  z.object({ action: z.literal('recovery-regenerate'), password: z.string().min(1).max(256) }).strict(),
+  z.object({ action: z.literal('totp-disable'), password: z.string().min(1).max(256), code: z.string().min(6).max(32).optional() }).strict(),
+  z.object({ action: z.literal('recovery-regenerate'), password: z.string().min(1).max(256), code: z.string().min(6).max(32).optional() }).strict(),
 ]);
 
 interface MfaStateView {
@@ -69,6 +70,12 @@ export async function POST(req: NextRequest) {
     if (!('password' in input)) return true;
     return verifyPassword(input.password, user.password_hash);
   };
+  const checkSecondFactor = (): boolean => {
+    if (!user.totp_enabled_at || !user.totp_secret) return true;
+    const code = 'code' in input ? input.code?.trim() : '';
+    if (!code) return false;
+    return verifyTotp(user.totp_secret, code) || consumeRecoveryCode(user.id, code);
+  };
 
   switch (input.action) {
     case 'email': {
@@ -99,12 +106,14 @@ export async function POST(req: NextRequest) {
     }
     case 'totp-disable': {
       if (!(await checkPassword())) return errorJson('Incorrect password.', 401, 'invalid_password');
+      if (!checkSecondFactor()) return errorJson('Enter a current authenticator or recovery code.', 400, 'totp_code_required');
       disableTotp(user.id);
       auditLog({ actorUserId: user.id, action: 'mfa.totp_disabled', targetUserId: user.id });
       return json({ mfa: stateFor(user.id) });
     }
     case 'recovery-regenerate': {
       if (!(await checkPassword())) return errorJson('Incorrect password.', 401, 'invalid_password');
+      if (!checkSecondFactor()) return errorJson('Enter a current authenticator or recovery code.', 400, 'totp_code_required');
       const recoveryCodes = replaceRecoveryCodes(user.id);
       auditLog({ actorUserId: user.id, action: 'mfa.recovery_regenerated', targetUserId: user.id });
       return json({ mfa: stateFor(user.id), recoveryCodes });

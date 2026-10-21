@@ -19,6 +19,7 @@ export default function AccountPage() {
   const [busy, setBusy] = useState(false);
 
   const [mfaPassword, setMfaPassword] = useState('');
+  const [mfaCode, setMfaCode] = useState('');
   const [totpSetup, setTotpSetup] = useState<TotpSetup | null>(null);
   const [totpCode, setTotpCode] = useState('');
   const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
@@ -139,8 +140,9 @@ export default function AccountPage() {
     clearMessages();
     setBusy(true);
     try {
-      await mfaPost({ action: 'totp-disable', password: mfaPassword });
+      await mfaPost({ action: 'totp-disable', password: mfaPassword, code: mfaCode });
       setMfaPassword('');
+      setMfaCode('');
       setNotice('Authenticator app disabled.');
       await load();
     } catch (e) {
@@ -154,8 +156,9 @@ export default function AccountPage() {
     clearMessages();
     setBusy(true);
     try {
-      const res = await mfaPost({ action: 'recovery-regenerate', password: mfaPassword });
+      const res = await mfaPost({ action: 'recovery-regenerate', password: mfaPassword, code: mfaCode });
       setMfaPassword('');
+      setMfaCode('');
       setRecoveryCodes(res.recoveryCodes ?? null);
       setNotice('New recovery codes generated. Your previous codes no longer work.');
       await load();
@@ -272,6 +275,21 @@ export default function AccountPage() {
         <p className="hint">Required to enable, disable, or regenerate any MFA setting.</p>
       </div>
 
+      {mfa.totpEnabled && (
+        <div className="field">
+          <label htmlFor="mfa-code">Authenticator or recovery code</label>
+          <input
+            id="mfa-code"
+            type="text"
+            value={mfaCode}
+            onChange={(e) => setMfaCode(e.target.value)}
+            placeholder="Current code"
+            autoComplete="one-time-code"
+          />
+          <p className="hint">Required to disable TOTP or regenerate recovery codes.</p>
+        </div>
+      )}
+
       <div className="actions">
         {!mfa.emailEnabled ? (
           <button className="button secondary" onClick={() => toggleEmailMfa(true)} disabled={busy || !me.user.emailVerified}>
@@ -288,12 +306,12 @@ export default function AccountPage() {
           </button>
         )}
         {mfa.totpEnabled && (
-          <button className="button secondary" onClick={disableTotp} disabled={busy}>
+          <button className="button secondary" onClick={disableTotp} disabled={busy || !mfaCode}>
             Disable authenticator app
           </button>
         )}
         {mfa.totpEnabled && (
-          <button className="button secondary" onClick={regenerateRecovery} disabled={busy}>
+          <button className="button secondary" onClick={regenerateRecovery} disabled={busy || !mfaCode}>
             Regenerate recovery codes
           </button>
         )}
