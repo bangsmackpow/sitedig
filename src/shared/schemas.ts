@@ -58,6 +58,8 @@ export const createJobSchema = z
     consent: z.literal(true, { errorMap: () => ({ message: 'Authorization acknowledgement is required.' }) }),
     custom: customOptionsSchema.optional(),
     modules: z.array(moduleIdSchema).max(9).optional(),
+    /** Trusted web -> worker ownership hint; used only for history attribution. */
+    userId: z.number().int().positive().optional(),
   })
   .strict();
 

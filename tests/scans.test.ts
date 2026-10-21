@@ -137,6 +137,12 @@ describe('scan history', () => {
     expect(row.user_id).toBeNull();
   });
 
+  it('attributes an orphan event to the forwarded owner', () => {
+    const user = createUser({ email: 'orphan-owner@example.com', passwordHash: 'x', verified: true });
+    applyScanEvent(event('orphan-owned', 'owned.example', { userId: user.id }));
+    expect(getScan('orphan-owned')?.user_id).toBe(user.id);
+  });
+
   it('aggregates stats across a range', () => {
     const user = createUser({ email: 'u3@example.com', passwordHash: 'x', verified: true });
     queued(user.id, 'a', 'a.example', 'quick');

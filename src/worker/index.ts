@@ -102,6 +102,7 @@ export function startWorkerServer(opts: { config: ReturnType<typeof getWorkerCon
         profile: input.profile as ScanProfile,
         custom: input.custom as CustomScanOptions | undefined,
         modules: input.modules as ModuleId[] | undefined,
+        userId: input.userId,
       });
       log.info('job_accepted', { jobId: job.id, profile: job.profile, host: job.target.host });
       sendJson(res, 201, { jobId: job.id, status: job.status });

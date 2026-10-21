@@ -379,6 +379,7 @@ export class ScannerService {
 
     return {
       scanId: job.id,
+      userId: job.userId ?? null,
       status,
       targetRaw: job.target.raw,
       host: job.target.host,
@@ -435,7 +436,13 @@ export class ScannerService {
     return { pending: this.queue.pendingCount, active: this.queue.activeCount };
   }
 
-  async createJob(input: { target: string; profile: ScanProfile; custom?: CustomScanOptions; modules?: ModuleId[] }): Promise<Job> {
+  async createJob(input: {
+    target: string;
+    profile: ScanProfile;
+    custom?: CustomScanOptions;
+    modules?: ModuleId[];
+    userId?: number;
+  }): Promise<Job> {
     const target = parseTarget(input.target);
 
     // Gate paid modules against the deployment's enabled set.
@@ -458,14 +465,21 @@ export class ScannerService {
       }
       const jobId = crypto.randomUUID();
       this.validatedTargets.set(jobId, resolved);
-      return this.enqueue(jobId, target, input.profile, input.custom, modules);
+      return this.enqueue(jobId, target, input.profile, input.custom, modules, input.userId);
     }
 
     const jobId = crypto.randomUUID();
-    return this.enqueue(jobId, target, input.profile, input.custom, modules);
+    return this.enqueue(jobId, target, input.profile, input.custom, modules, input.userId);
   }
 
-  private enqueue(jobId: string, target: NormalizedTarget, profile: ScanProfile, custom?: CustomScanOptions, modules: ModuleId[] = []): Job {
+  private enqueue(
+    jobId: string,
+    target: NormalizedTarget,
+    profile: ScanProfile,
+    custom?: CustomScanOptions,
+    modules: ModuleId[] = [],
+    userId?: number,
+  ): Job {
     const jobDir = path.join(this.config.artifactDir, jobId);
     fs.mkdirSync(jobDir, { recursive: true });
 
@@ -486,6 +500,7 @@ export class ScannerService {
     const createdAt = new Date().toISOString();
     const job: Job = {
       id: jobId,
+      userId: userId ?? null,
       status: 'queued',
       target,
       profile,

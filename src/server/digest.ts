@@ -6,7 +6,7 @@ import { createMailer } from './email/mailer';
 import { digestEmail, type DigestEmailData } from './email/templates';
 import { sweepExpiredAuthData } from './maintenance';
 import { getScanStats, sweepScanHistory } from './scans';
-import { getSetting, setSetting } from './settings';
+import { acquireLock, getSetting, releaseLock, setSetting } from './settings';
 
 const log = createLogger();
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -124,5 +124,10 @@ export async function runScheduledMaintenance(): Promise<void> {
   const lastRun = getSetting(LAST_RUN_KEY);
   if (lastRun && new Date(lastRun).toISOString().slice(0, 10) === now.toISOString().slice(0, 10)) return;
 
-  await sendAdminDigest(undefined, config);
+  if (!acquireLock('digest_lock', 15 * 60 * 1000)) return;
+  try {
+    await sendAdminDigest(undefined, config);
+  } finally {
+    releaseLock('digest_lock');
+  }
 }

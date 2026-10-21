@@ -74,6 +74,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       dayOfWeek: parsed.data.dayOfWeek ?? null,
       alertMinSeverity: parsed.data.alertMinSeverity,
       alertOnFailure: parsed.data.alertOnFailure,
+      maxSchedules: config.maxSchedulesPerUser,
     });
     auditLog({ actorUserId: user.id, action: 'schedule.created', targetUserId: user.id, metadata: { scheduleId: schedule.id, target: schedule.target } });
     return json({ schedule }, 201);

@@ -35,6 +35,7 @@ const findingSummarySchema = z
 const payloadSchema = z
   .object({
     scanId: z.string().min(1).max(128),
+    userId: z.number().int().positive().nullable().optional(),
     status: z.enum(['completed', 'failed', 'cancelled']),
     targetRaw: z.string().max(2048),
     host: z.string().max(255),

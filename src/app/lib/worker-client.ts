@@ -5,6 +5,8 @@ export interface CreateScanInput {
   target: string;
   profile: ScanProfile;
   consent: boolean;
+  /** Owner hint forwarded to the worker for history attribution. */
+  userId?: number;
   custom?: {
     portScope: 'common' | 'top100' | 'top1000';
     enabledTools: Array<'nmap' | 'whatweb' | 'wpscan' | 'http' | 'tls'>;

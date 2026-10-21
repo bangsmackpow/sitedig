@@ -64,6 +64,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       consent: parsed.data.consent,
       custom: parsed.data.custom,
       modules: parsed.data.modules,
+      userId,
     });
     // Record the scan in long-term history (best-effort; never blocks a scan).
     try {

@@ -473,6 +473,8 @@ export interface JobArtifactMeta {
 
 export interface Job {
   id: string;
+  /** Owner, forwarded from the trusted web service so history survives a lost callback. */
+  userId?: number | null;
   status: JobStatus;
   target: NormalizedTarget;
   profile: ScanProfile;
@@ -590,6 +592,8 @@ export interface ScanDiff {
  */
 export interface ScanEventPayload {
   scanId: string;
+  /** Owner for the fallback history insert; absent on older workers. */
+  userId?: number | null;
   status: 'completed' | 'failed' | 'cancelled';
   targetRaw: string;
   host: string;

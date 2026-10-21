@@ -35,6 +35,7 @@ export interface CreateScheduledScanInput {
   consent: true;
   custom?: ScheduledCustomOptions;
   modules?: ModuleId[];
+  userId?: number;
 }
 
 export interface SchedulerDeps {
@@ -92,6 +93,7 @@ async function dispatchSchedule(schedule: ScheduledScan, deps: Required<Pick<Sch
     consent: true,
     custom,
     modules: schedule.modules,
+    userId: user.id,
   });
 
   try {

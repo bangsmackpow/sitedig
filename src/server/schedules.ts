@@ -138,6 +138,8 @@ export interface CreateScheduleServiceInput {
   dayOfWeek: number | null;
   alertMinSeverity: ScheduleAlertThreshold;
   alertOnFailure: boolean;
+  /** Enforced inside the insert transaction so concurrent creates cannot race. */
+  maxSchedules?: number;
 }
 
 export function createSchedule(input: CreateScheduleServiceInput): ScheduledScan {
@@ -148,36 +150,42 @@ export function createSchedule(input: CreateScheduleServiceInput): ScheduledScan
     now,
   );
   const nowIso = now.toISOString();
-  const result = getDb()
-    .prepare(
-      `INSERT INTO scheduled_scans (
-         user_id, user_email, target_raw, host, path, scheme, profile, custom_json, modules_json,
-         frequency, hour_utc, minute_utc, day_of_week, alert_min_severity, alert_on_failure, enabled,
-         consent_at, next_run_at, created_at, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`,
-    )
-    .run(
-      input.userId,
-      input.userEmail,
-      input.target,
-      target.host,
-      target.path,
-      target.scheme,
-      input.profile,
-      input.custom ? JSON.stringify(input.custom) : null,
-      JSON.stringify(input.modules),
-      input.frequency,
-      input.hourUtc,
-      input.minuteUtc,
-      input.frequency === 'weekly' ? input.dayOfWeek : null,
-      input.alertMinSeverity,
-      input.alertOnFailure ? 1 : 0,
-      nowIso,
-      nextRunAt.toISOString(),
-      nowIso,
-      nowIso,
-    );
-  return getSchedule(Number(result.lastInsertRowid))!;
+  const db = getDb();
+  const insert = db.transaction(() => {
+    if (input.maxSchedules !== undefined && countSchedules(input.userId) >= input.maxSchedules) {
+      throw new Error(`You can create at most ${input.maxSchedules} scheduled scans.`);
+    }
+    return db
+      .prepare(
+        `INSERT INTO scheduled_scans (
+           user_id, user_email, target_raw, host, path, scheme, profile, custom_json, modules_json,
+           frequency, hour_utc, minute_utc, day_of_week, alert_min_severity, alert_on_failure, enabled,
+           consent_at, next_run_at, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`,
+      )
+      .run(
+        input.userId,
+        input.userEmail,
+        input.target,
+        target.host,
+        target.path,
+        target.scheme,
+        input.profile,
+        input.custom ? JSON.stringify(input.custom) : null,
+        JSON.stringify(input.modules),
+        input.frequency,
+        input.hourUtc,
+        input.minuteUtc,
+        input.frequency === 'weekly' ? input.dayOfWeek : null,
+        input.alertMinSeverity,
+        input.alertOnFailure ? 1 : 0,
+        nowIso,
+        nextRunAt.toISOString(),
+        nowIso,
+        nowIso,
+      ).lastInsertRowid;
+  });
+  return getSchedule(Number(insert()))!;
 }
 
 export interface UpdateScheduleServiceInput {

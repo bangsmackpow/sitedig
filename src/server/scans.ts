@@ -199,12 +199,13 @@ export function applyScanEvent(payload: ScanEventPayload): void {
     // create and completion) insert a standalone record so history is complete.
     if (res.changes === 0) {
       db.prepare(
-        `INSERT INTO scans (id, target_raw, host, path, scheme, profile, port_scope, modules_json, status, created_at,
+        `INSERT INTO scans (id, user_id, target_raw, host, path, scheme, profile, port_scope, modules_json, status, created_at,
            started_at, finished_at, duration_ms, resolved_ips, ip_version, port_count,
            findings_critical, findings_high, findings_medium, findings_low, findings_informational, tool_ok, tool_total, error)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         payload.scanId,
+        payload.userId ?? null,
         payload.targetRaw,
         payload.host,
         payload.path,
