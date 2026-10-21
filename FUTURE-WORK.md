@@ -11,6 +11,9 @@ completed P0/P1 fix train. Work through these in priority order.
       `recovery_codes.code_hash`) and encrypt TOTP secrets at rest.
 - [ ] Pin GitHub Actions to commit SHAs; verify scanner release-asset SHA256
       checksums; pin the Docker base image by digest.
+- [ ] Triage scanner-tool CVEs (Go binaries, Ruby gems) reported by Trivy and
+      re-enable blocking CI once the actionable set is clear. Trivy currently
+      reports them without failing the build so deploys are not blocked.
 - [ ] Add a worker egress firewall/policy that denies RFC1918, link-local, and
       metadata ranges, and pin validated IPs for HTTP checks where possible.
       Pre-tool DNS validation alone does not stop tool-level rebinding.
