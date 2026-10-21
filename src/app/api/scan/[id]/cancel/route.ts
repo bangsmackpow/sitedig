@@ -5,7 +5,7 @@ import { ensureInitialized } from '@/server/bootstrap';
 import { guardUser } from '@/server/http';
 import { errorJson } from '@/server/http';
 import { verifyCsrfOrOrigin } from '@/server/auth/csrf';
-import { getScanForUser } from '@/server/scans';
+import { getScanForUser, markScanFailed } from '@/server/scans';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,6 +26,9 @@ export async function POST(req: NextRequest, ctx: Ctx): Promise<NextResponse> {
     return NextResponse.json({ job });
   } catch (e) {
     if (e instanceof WorkerClientError) {
+      if (e.status === 404) {
+        markScanFailed(id, 'The scan was no longer present in the worker and has been marked failed.');
+      }
       return NextResponse.json({ error: { code: e.code, message: e.message } }, { status: e.status });
     }
     if (e instanceof WorkerUnavailableError) {

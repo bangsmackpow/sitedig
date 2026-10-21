@@ -1,4 +1,5 @@
 import { getDb } from './db';
+import { MAX_SCAN_TIMEOUT_MS } from '../shared/constants';
 import { riskGrade, riskScore } from '../shared/risk';
 import type { FindingCounts, ScanEventPayload, ScanFindingSummary, ScanRisk, ScanToolTiming } from '../shared/types';
 
@@ -251,13 +252,64 @@ export function getScanForUser(id: string, userId: number, isAdmin: boolean): Sc
   return null;
 }
 
-/** Count scans currently queued or running for a user. */
-export function countActiveScans(userId: number): number {
+/** Scans older than this are treated as abandoned (worker restart, lost event). */
+const STALE_SCAN_AFTER_MS = MAX_SCAN_TIMEOUT_MS + 5 * 60 * 1000;
+
+function staleScanCutoff(now = new Date()): string {
+  return new Date(now.getTime() - STALE_SCAN_AFTER_MS).toISOString();
+}
+
+/**
+ * Count scans that are genuinely queued/running. Abandoned rows from a worker
+ * restart must not block the user forever; they are excluded here and can be
+ * reconciled by failStaleScans().
+ */
+export function countActiveScans(userId: number, now = new Date()): number {
   return (
     getDb()
-      .prepare(`SELECT COUNT(*) AS c FROM scans WHERE user_id = ? AND status IN ('queued','running')`)
-      .get(userId) as { c: number }
+      .prepare(
+        `SELECT COUNT(*) AS c FROM scans
+         WHERE user_id = ? AND status IN ('queued','running') AND created_at >= ?`,
+      )
+      .get(userId, staleScanCutoff(now)) as { c: number }
   ).c;
+}
+
+/** Recent queued/running scans for a user (excludes abandoned rows). */
+export function listActiveScans(userId: number, now = new Date()): ScanRow[] {
+  return getDb()
+    .prepare(
+      `SELECT * FROM scans
+       WHERE user_id = ? AND status IN ('queued','running') AND created_at >= ?
+       ORDER BY created_at DESC`,
+    )
+    .all(userId, staleScanCutoff(now)) as ScanRow[];
+}
+
+/** Mark a specific queued/running scan failed (e.g. worker no longer has it). */
+export function markScanFailed(id: string, error: string): boolean {
+  return (
+    getDb()
+      .prepare(
+        `UPDATE scans SET status = 'failed', error = ?, finished_at = COALESCE(finished_at, ?)
+         WHERE id = ? AND status IN ('queued','running')`,
+      )
+      .run(error, new Date().toISOString(), id).changes > 0
+  );
+}
+
+/** Mark abandoned queued/running scans as failed so history is truthful. */
+export function failStaleScans(now = new Date()): number {
+  const nowIso = now.toISOString();
+  return getDb()
+    .prepare(
+      `UPDATE scans
+       SET status = 'failed',
+           error = COALESCE(error, 'The scan was interrupted because the worker restarted or stopped responding.'),
+           finished_at = COALESCE(finished_at, ?)
+       WHERE status IN ('queued','running') AND created_at < ?`,
+    )
+    .run(nowIso, staleScanCutoff(now)).changes;
 }
 
 export function getScanFindings(scanId: string): ScanFindingSummary[] {

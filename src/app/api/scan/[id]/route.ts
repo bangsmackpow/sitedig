@@ -4,7 +4,7 @@ import type { PublicJobView } from '@/shared/types';
 import { getJobStatus, WorkerClientError, WorkerUnavailableError } from '@/app/lib/worker-client';
 import { ensureInitialized } from '@/server/bootstrap';
 import { guardUser } from '@/server/http';
-import { getScanForUser } from '@/server/scans';
+import { getScanForUser, markScanFailed } from '@/server/scans';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,7 +27,9 @@ export async function GET(req: NextRequest, ctx: Ctx): Promise<NextResponse> {
   } catch (e) {
     if (e instanceof WorkerClientError && e.status === 404) {
       // The worker has no record of this job (e.g. it restarted). Surface it
-      // as interrupted rather than pretending it completed.
+      // as interrupted rather than pretending it completed, and reconcile the
+      // stored row so it no longer counts against the per-user scan limit.
+      markScanFailed(id, 'The scan was interrupted because the scanner worker restarted. No report is available.');
       const interrupted: PublicJobView = {
         id,
         status: 'failed',

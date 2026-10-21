@@ -1,14 +1,14 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { createJobSchema } from '@/shared/schemas';
-import { createScan, WorkerClientError, WorkerUnavailableError } from '@/app/lib/worker-client';
+import { createScan, getJobStatus, WorkerClientError, WorkerUnavailableError } from '@/app/lib/worker-client';
 import { ensureInitialized } from '@/server/bootstrap';
 import { guardUser } from '@/server/http';
 import { errorJson, readJsonLimited } from '@/server/http';
 import { verifyCsrfOrOrigin } from '@/server/auth/csrf';
 import { canUseModule } from '@/server/entitlements';
 import { isUserVerified } from '@/server/users';
-import { countActiveScans, recordScanQueued } from '@/server/scans';
+import { countActiveScans, failStaleScans, listActiveScans, markScanFailed, recordScanQueued } from '@/server/scans';
 import { rateLimit } from '@/server/auth/rate-limit';
 import { MAX_ACTIVE_SCANS_PER_USER } from '@/shared/constants';
 import { parseTarget } from '@/shared/targets';
@@ -31,7 +31,23 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   if (!rateLimit(`scan:${userId}`, 10, 15 * 60 * 1000)) {
     return errorJson('Too many scan requests. Try again later.', 429, 'rate_limited');
   }
-  if (countActiveScans(userId) >= MAX_ACTIVE_SCANS_PER_USER) {
+  failStaleScans();
+  let activeScans = countActiveScans(userId);
+  if (activeScans >= MAX_ACTIVE_SCANS_PER_USER) {
+    // The worker may have restarted and lost these jobs. Reconcile before
+    // turning the user away so abandoned rows do not block new scans.
+    for (const scan of listActiveScans(userId)) {
+      try {
+        await getJobStatus(scan.id);
+      } catch (e) {
+        if (e instanceof WorkerClientError && e.status === 404) {
+          markScanFailed(scan.id, 'The scan was no longer present in the worker and has been marked failed.');
+        }
+      }
+    }
+    activeScans = countActiveScans(userId);
+  }
+  if (activeScans >= MAX_ACTIVE_SCANS_PER_USER) {
     return errorJson(`You already have ${MAX_ACTIVE_SCANS_PER_USER} scans queued or running.`, 429, 'scan_limit');
   }
 

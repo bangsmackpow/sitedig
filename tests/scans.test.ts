@@ -7,6 +7,7 @@ import { createUser } from '../src/server/users';
 import {
   applyScanEvent,
   countActiveScans,
+  failStaleScans,
   getScan,
   getScanFindings,
   getScanForUser,
@@ -208,6 +209,21 @@ describe('scan access and quotas', () => {
     expect(countActiveScans(user.id)).toBe(2);
     applyScanEvent(event('queued-scan', 'q.example'));
     expect(countActiveScans(user.id)).toBe(1);
+  });
+
+  it('ignores and reconciles abandoned queued scans', () => {
+    const user = createUser({ email: 'stale@example.com', passwordHash: 'x', verified: true });
+    queued(user.id, 'stale-scan', 'stale.example');
+    getDb()
+      .prepare('UPDATE scans SET created_at = ? WHERE id = ?')
+      .run(new Date(Date.now() - 30 * 60 * 1000).toISOString(), 'stale-scan');
+
+    expect(countActiveScans(user.id)).toBe(0);
+    expect(failStaleScans()).toBe(1);
+    const row = getScan('stale-scan')!;
+    expect(row.status).toBe('failed');
+    expect(row.error).toMatch(/interrupted/i);
+    expect(row.finished_at).toBeTruthy();
   });
 });
 

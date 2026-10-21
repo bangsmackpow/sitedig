@@ -5,7 +5,7 @@ import { getDb } from './db';
 import { createMailer } from './email/mailer';
 import { digestEmail, type DigestEmailData } from './email/templates';
 import { sweepExpiredAuthData } from './maintenance';
-import { getScanStats, sweepScanHistory } from './scans';
+import { failStaleScans, getScanStats, sweepScanHistory } from './scans';
 import { acquireLock, getSetting, releaseLock, setSetting } from './settings';
 
 const log = createLogger();
@@ -116,6 +116,13 @@ export async function runScheduledMaintenance(): Promise<void> {
     } catch (e) {
       log.warn('auth_artifacts_sweep_failed', { error: (e as Error).message });
     }
+  }
+
+  try {
+    const failed = failStaleScans(now);
+    if (failed > 0) log.warn('stale_scans_failed', { count: failed });
+  } catch (e) {
+    log.warn('stale_scan_cleanup_failed', { error: (e as Error).message });
   }
 
   if (!config.digest.enabled) return;
