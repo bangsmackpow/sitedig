@@ -3,6 +3,7 @@ import type { CveContextFinding } from '../shared/types';
 const OSV_BATCH_URL = 'https://api.osv.dev/v1/querybatch';
 const TIMEOUT_MS = 20_000;
 const MAX_PACKAGES = 15;
+const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 
 export interface OsvPackageQuery {
   ecosystem: string;
@@ -57,7 +58,11 @@ export async function osvLookup(packages: OsvPackageQuery[]): Promise<CveContext
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
     if (!res.ok) return [];
-    const data = (await res.json()) as { results?: Array<{ vulns?: unknown[] } | null> };
+    const declared = Number(res.headers.get('content-length') ?? '');
+    if (Number.isFinite(declared) && declared > MAX_RESPONSE_BYTES) return [];
+    const text = await res.text();
+    if (text.length > MAX_RESPONSE_BYTES) return [];
+    const data = JSON.parse(text) as { results?: Array<{ vulns?: unknown[] } | null> };
     const results = data.results ?? [];
     for (let i = 0; i < packages.length; i++) {
       const pkg = packages[i];

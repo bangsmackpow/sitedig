@@ -4,7 +4,19 @@ import os from 'node:os';
 import path from 'node:path';
 import { getDb, resetDbForTests } from '../src/server/db';
 import { createUser } from '../src/server/users';
-import { applyScanEvent, getScan, getScanFindings, getScanStats, listAdminScans, listUserScans, recordScanQueued, sweepScanHistory, toScanView } from '../src/server/scans';
+import {
+  applyScanEvent,
+  countActiveScans,
+  getScan,
+  getScanFindings,
+  getScanForUser,
+  getScanStats,
+  listAdminScans,
+  listUserScans,
+  recordScanQueued,
+  sweepScanHistory,
+  toScanView,
+} from '../src/server/scans';
 import { buildDigestData } from '../src/server/digest';
 import type { ScanEventPayload } from '../src/shared/types';
 
@@ -168,6 +180,28 @@ describe('scan history', () => {
     const removed = sweepScanHistory(365);
     expect(removed).toBe(1);
     expect(getScan('old')).toBeNull();
+  });
+});
+
+describe('scan access and quotas', () => {
+  it('only resolves scans for their owner or an admin', () => {
+    const owner = createUser({ email: 'owner@example.com', passwordHash: 'x', verified: true });
+    const other = createUser({ email: 'other@example.com', passwordHash: 'x', verified: true });
+    queued(owner.id, 'owned-scan', 'owned.example');
+    expect(getScanForUser('owned-scan', owner.id, false)?.id).toBe('owned-scan');
+    expect(getScanForUser('owned-scan', other.id, false)).toBeNull();
+    expect(getScanForUser('owned-scan', other.id, true)?.id).toBe('owned-scan');
+    expect(getScanForUser('missing', owner.id, false)).toBeNull();
+  });
+
+  it('counts only queued and running scans', () => {
+    const user = createUser({ email: 'quota@example.com', passwordHash: 'x', verified: true });
+    queued(user.id, 'queued-scan', 'q.example');
+    queued(user.id, 'running-scan', 'r.example');
+    getDb().prepare(`UPDATE scans SET status = 'running' WHERE id = ?`).run('running-scan');
+    expect(countActiveScans(user.id)).toBe(2);
+    applyScanEvent(event('queued-scan', 'q.example'));
+    expect(countActiveScans(user.id)).toBe(1);
   });
 });
 

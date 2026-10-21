@@ -11,6 +11,53 @@ export function errorJson(message: string, status = 400, code = 'error'): NextRe
   return NextResponse.json({ error: { code, message } }, { status });
 }
 
+export class PayloadTooLargeError extends Error {
+  constructor(maxBytes: number) {
+    super(`Request body exceeds the ${maxBytes} byte limit.`);
+    this.name = 'PayloadTooLargeError';
+  }
+}
+
+async function readLimitedBody(req: NextRequest, maxBytes: number): Promise<string> {
+  const declared = Number(req.headers.get('content-length') ?? '');
+  if (Number.isFinite(declared) && declared > maxBytes) throw new PayloadTooLargeError(maxBytes);
+  if (!req.body) return '';
+
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel().catch(() => undefined);
+        throw new PayloadTooLargeError(maxBytes);
+      }
+      chunks.push(value);
+    }
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch {
+      // The stream may already be released after cancellation.
+    }
+  }
+  return new TextDecoder().decode(Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))));
+}
+
+/** Read and parse a JSON body with a hard byte cap (default 64 KiB). */
+export async function readJsonLimited(req: NextRequest, maxBytes = 64 * 1024): Promise<unknown> {
+  return JSON.parse(await readLimitedBody(req, maxBytes));
+}
+
+/** Read a raw text body with a hard byte cap. */
+export async function readTextLimited(req: NextRequest, maxBytes = 64 * 1024): Promise<string> {
+  return readLimitedBody(req, maxBytes);
+}
+
 export type GuardResult<T> = { ok: true; value: T } | { ok: false; response: NextResponse };
 
 export async function guardUser(req: NextRequest): Promise<GuardResult<SessionUser>> {

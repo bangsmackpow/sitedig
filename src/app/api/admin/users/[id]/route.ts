@@ -1,7 +1,7 @@
 import type { NextRequest } from 'next/server';
 import { z } from 'zod';
 import { ensureInitialized } from '@/server/bootstrap';
-import { errorJson, json } from '@/server/http';
+import { errorJson, json, readJsonLimited } from '@/server/http';
 import { guardAdmin } from '@/server/http';
 import { verifyCsrfOrOrigin } from '@/server/auth/csrf';
 import { getUserById, updateUserStatus } from '@/server/users';
@@ -32,7 +32,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
   const user = getUserById(id);
   if (!user) return errorJson('User not found.', 404, 'not_found');
 
-  const body = await req.json().catch(() => null);
+  const body = await readJsonLimited(req, 16 * 1024).catch(() => null);
   const parsed = patchSchema.safeParse(body);
   if (!parsed.success) return errorJson('Invalid input.', 400, 'validation_error');
 

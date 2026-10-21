@@ -14,10 +14,12 @@ import type { HttpObservation, TlsObservation } from '../src/shared/types';
 
 const BIN = path.join(__dirname, 'fixtures', 'stub-bin');
 
+const TEST_TOKEN = 'test-token-0123456789-0123456789-abcdef';
+
 function makeConfig(overrides: Partial<WorkerConfig> = {}): WorkerConfig {
   return {
     port: 0,
-    serviceToken: '',
+    serviceToken: TEST_TOKEN,
     maxConcurrentScans: 1,
     maxQueue: 2,
     scanTimeoutMs: 30_000,
@@ -89,8 +91,12 @@ describe('worker HTTP server', () => {
     server.close();
   });
 
-  const json = async (pathName: string, init?: RequestInit) => {
-    const res = await fetch(`${baseUrl}${pathName}`, init);
+  const authHeaders = (): Record<string, string> => ({ authorization: `Bearer ${config.serviceToken}` });
+
+  const json = async (pathName: string, init: RequestInit = {}) => {
+    const headers = new Headers(init.headers);
+    for (const [key, value] of Object.entries(authHeaders())) headers.set(key, value);
+    const res = await fetch(`${baseUrl}${pathName}`, { ...init, headers });
     const body = await res.json();
     return { status: res.status, body: body as Record<string, unknown> };
   };
@@ -108,7 +114,7 @@ describe('worker HTTP server', () => {
     await setup({ enabledModules: new Set<ModuleId>(['remediation-playbook']) });
     const health = (await (await fetch(`${baseUrl}/health`)).json()) as { enabledModules?: string[] };
     expect(health.enabledModules).toContain('remediation-playbook');
-    const modules = (await (await fetch(`${baseUrl}/modules`)).json()) as { modules: Array<{ id: string; enabled: boolean }> };
+    const modules = (await json('/modules')).body as { modules: Array<{ id: string; enabled: boolean }> };
     expect(modules.modules.find((m) => m.id === 'remediation-playbook')?.enabled).toBe(true);
   });
 
@@ -164,26 +170,33 @@ describe('worker HTTP server', () => {
     expect(view.hasArtifacts).toBe(true);
     expect(view.summaryCounts).not.toBeNull();
 
-    const reportRes = await fetch(`${baseUrl}/jobs/${jobId}/report`);
+    const reportRes = await fetch(`${baseUrl}/jobs/${jobId}/report`, { headers: authHeaders() });
     expect(reportRes.status).toBe(200);
     const reportBody = (await reportRes.json()) as { report: { meta: { target: string } }; expiresAt: string };
     expect(reportBody.report.meta.target).toContain('example.com');
     expect(reportBody.expiresAt).toBeTruthy();
 
-    const pdfRes = await fetch(`${baseUrl}/jobs/${jobId}/artifacts/pdf`);
+    const pdfRes = await fetch(`${baseUrl}/jobs/${jobId}/artifacts/pdf`, { headers: authHeaders() });
     expect(pdfRes.status).toBe(200);
     const bytes = Buffer.from(await pdfRes.arrayBuffer());
     expect(bytes.length).toBeGreaterThan(100);
     expect(bytes.subarray(0, 4).toString()).toBe('%PDF');
 
-    const mdRes = await fetch(`${baseUrl}/jobs/${jobId}/artifacts/markdown`);
+    const mdRes = await fetch(`${baseUrl}/jobs/${jobId}/artifacts/markdown`, { headers: authHeaders() });
     expect(mdRes.status).toBe(200);
     const md = await mdRes.text();
     expect(md).toContain('# SiteDig Scan Report');
 
     // Artifacts are deleted after delivery.
-    const secondPdf = await fetch(`${baseUrl}/jobs/${jobId}/artifacts/pdf`);
+    const secondPdf = await fetch(`${baseUrl}/jobs/${jobId}/artifacts/pdf`, { headers: authHeaders() });
     expect([404, 409]).toContain(secondPdf.status);
+  });
+
+  it('fails closed when no token is configured', async () => {
+    server.close();
+    await setup({ serviceToken: '' });
+    const res = await fetch(`${baseUrl}/jobs/whatever`);
+    expect(res.status).toBe(401);
   });
 
   it('requires a token when configured', async () => {
@@ -213,9 +226,9 @@ describe('worker HTTP server', () => {
   });
 
   it('lists modules with enabled flags', async () => {
-    const res = await fetch(`${baseUrl}/modules`);
+    const res = await json('/modules');
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { modules: Array<{ id: string; enabled: boolean }> };
+    const body = res.body as { modules: Array<{ id: string; enabled: boolean }> };
     expect(body.modules.some((m) => m.id === 'asset-discovery')).toBe(true);
     expect(body.modules.every((m) => m.enabled === false)).toBe(true);
   });

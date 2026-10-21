@@ -14,9 +14,7 @@ let initialized = false;
 export async function ensureInitialized(): Promise<void> {
   if (initialized) return;
   const cfg = getWebConfig();
-  if (cfg.deploymentMode === 'hosted') {
-    validateWebConfig(cfg);
-  }
+  validateWebConfig(cfg);
   getDb(); // opens DB + runs migrations
 
   const adminCount = (getDb().prepare(`SELECT COUNT(*) AS c FROM users WHERE role = 'admin' AND deleted_at IS NULL`).get() as { c: number }).c;

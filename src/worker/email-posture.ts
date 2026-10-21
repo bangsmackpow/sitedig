@@ -12,6 +12,7 @@ export interface EmailPostureDeps {
 
 const TXT_TIMEOUT_MS = 8_000;
 const STARTTLS_PROBE_MS = 8_000;
+const MAX_SMTP_BANNER_BYTES = 64 * 1024;
 
 async function txtRecords(name: string, resolveTxt: (hostname: string) => Promise<string[][]>): Promise<string[]> {
   try {
@@ -56,6 +57,10 @@ export async function defaultProbeStarttls(mxHost: string, ehloDomain: string, t
       if (done()) reject(e);
     });
     socket.on('data', (chunk: string) => {
+      if (buffer.length + chunk.length > MAX_SMTP_BANNER_BYTES) {
+        if (done()) reject(new Error('SMTP banner exceeded the size limit.'));
+        return;
+      }
       buffer += chunk;
       const lines = buffer.split('\r\n');
       if (stage === 0 && lines.some((l) => /^220 /.test(l))) {

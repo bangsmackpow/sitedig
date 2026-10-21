@@ -14,7 +14,7 @@ services:
     command: ["node", "node_modules/next/dist/bin/next", "start", "-p", "3000"]
     environment:
       WORKER_URL: ${WORKER_URL:-http://worker:8081}
-      SCAN_SERVICE_TOKEN: ${SCAN_SERVICE_TOKEN:-please-change-me}
+      SCAN_SERVICE_TOKEN: ${SCAN_SERVICE_TOKEN:-}
       WEB_PORT: "3000"
       LOG_LEVEL: ${LOG_LEVEL:-info}
       APP_VERSION: ${SITEDIG_TAG:-latest}
@@ -64,7 +64,7 @@ services:
     command: ["node", "dist-worker/worker/index.js"]
     environment:
       WORKER_PORT: "8081"
-      SCAN_SERVICE_TOKEN: ${SCAN_SERVICE_TOKEN:-please-change-me}
+      SCAN_SERVICE_TOKEN: ${SCAN_SERVICE_TOKEN:-}
       WEB_BASE_URL: ${WEB_BASE_URL:-http://web:3000}
       MAX_CONCURRENT_SCANS: ${MAX_CONCURRENT_SCANS:-1}
       MAX_QUEUE: ${MAX_QUEUE:-3}

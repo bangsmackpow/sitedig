@@ -1,4 +1,5 @@
 import { createLogger } from '../shared/logger';
+import { MAX_ACTIVE_SCANS_PER_USER } from '../shared/constants';
 import { getWebConfig, type WebConfig } from '../shared/config';
 import type { ModuleId, PortScope, ScanProfile, ScheduledScan, ToolName } from '../shared/types';
 
@@ -22,7 +23,7 @@ import {
   markScheduleRun,
   setScheduleEnabled,
 } from './schedules';
-import { recordScanQueued } from './scans';
+import { countActiveScans, recordScanQueued } from './scans';
 import { getUserById, isUserVerified } from './users';
 
 const log = createLogger();
@@ -68,6 +69,9 @@ async function dispatchSchedule(schedule: ScheduledScan, deps: Required<Pick<Sch
       pause(schedule, `Schedule paused because the ${moduleId} module is no longer available.`);
       return false;
     }
+  }
+  if (countActiveScans(user.id) >= MAX_ACTIVE_SCANS_PER_USER) {
+    throw new Error('Scheduled scan deferred because the active scan limit was reached.');
   }
 
   const custom: ScheduledCustomOptions | undefined = schedule.custom

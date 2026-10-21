@@ -2,7 +2,7 @@ import type { NextRequest } from 'next/server';
 import { createHash } from 'node:crypto';
 import { getWebConfig } from '@/shared/config';
 import { ensureInitialized } from '@/server/bootstrap';
-import { errorJson, json } from '@/server/http';
+import { errorJson, json, PayloadTooLargeError, readTextLimited } from '@/server/http';
 import { getStripe, handleStripeEvent } from '@/server/billing/stripe';
 import { getDb } from '@/server/db';
 
@@ -16,7 +16,13 @@ export async function POST(req: NextRequest): Promise<Response> {
   const signature = req.headers.get('stripe-signature');
   if (!signature) return errorJson('Missing Stripe signature.', 400, 'bad_signature');
 
-  const raw = await req.text();
+  let raw: string;
+  try {
+    raw = await readTextLimited(req, 1024 * 1024);
+  } catch (e) {
+    if (e instanceof PayloadTooLargeError) return errorJson('Webhook payload is too large.', 413, 'payload_too_large');
+    throw e;
+  }
   let event;
   try {
     event = getStripe(cfg).webhooks.constructEvent(raw, signature, cfg.stripe.webhookSecret);
@@ -25,9 +31,16 @@ export async function POST(req: NextRequest): Promise<Response> {
   }
 
   const db = getDb();
-  const existing = db.prepare('SELECT id FROM webhook_events WHERE stripe_event_id = ?').get(event.id);
-  if (existing) {
+  const existing = db.prepare('SELECT processing_error FROM webhook_events WHERE stripe_event_id = ?').get(event.id) as
+    | { processing_error: string | null }
+    | undefined;
+  if (existing && existing.processing_error === null) {
     return json({ received: true, idempotent: true });
+  }
+  // A previous attempt failed. Remove the tombstone so Stripe's retry can run
+  // the handler again instead of being permanently treated as processed.
+  if (existing) {
+    db.prepare('DELETE FROM webhook_events WHERE stripe_event_id = ?').run(event.id);
   }
 
   const payloadHash = createHash('sha256').update(raw).digest('hex');

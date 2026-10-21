@@ -242,6 +242,23 @@ export function getScan(id: string): ScanRow | null {
   return (getDb().prepare('SELECT * FROM scans WHERE id = ?').get(id) as ScanRow | undefined) ?? null;
 }
 
+/** Resolve a scan only when it belongs to the user (admins may access all). */
+export function getScanForUser(id: string, userId: number, isAdmin: boolean): ScanRow | null {
+  const scan = getScan(id);
+  if (!scan) return null;
+  if (isAdmin || scan.user_id === userId) return scan;
+  return null;
+}
+
+/** Count scans currently queued or running for a user. */
+export function countActiveScans(userId: number): number {
+  return (
+    getDb()
+      .prepare(`SELECT COUNT(*) AS c FROM scans WHERE user_id = ? AND status IN ('queued','running')`)
+      .get(userId) as { c: number }
+  ).c;
+}
+
 export function getScanFindings(scanId: string): ScanFindingSummary[] {
   const rows = getDb()
     .prepare('SELECT fingerprint, title, severity, category, affected, source_tools_json FROM scan_findings WHERE scan_id = ? ORDER BY id')

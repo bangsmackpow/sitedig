@@ -1,7 +1,7 @@
 import type { NextRequest } from 'next/server';
 import { z } from 'zod';
 import { ensureInitialized } from '@/server/bootstrap';
-import { errorJson, json } from '@/server/http';
+import { errorJson, json, readJsonLimited } from '@/server/http';
 import { guardAdmin } from '@/server/http';
 import { verifyCsrfOrOrigin } from '@/server/auth/csrf';
 import { createUser, listUsers, type UserRow } from '@/server/users';
@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
   const guard = await guardAdmin(req);
   if (!guard.ok) return guard.response;
 
-  const body = await req.json().catch(() => null);
+  const body = await readJsonLimited(req, 16 * 1024).catch(() => null);
   const parsed = createSchema.safeParse(body);
   if (!parsed.success) return errorJson(parsed.error.issues[0]?.message ?? 'Invalid input.', 400, 'validation_error');
 

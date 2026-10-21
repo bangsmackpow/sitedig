@@ -4,7 +4,7 @@ import { auditLog } from '@/server/audit';
 import { verifyCsrfOrOrigin } from '@/server/auth/csrf';
 import { ensureInitialized } from '@/server/bootstrap';
 import { isPremium } from '@/server/entitlements';
-import { errorJson, guardUser, json } from '@/server/http';
+import { errorJson, guardUser, json, readJsonLimited } from '@/server/http';
 import { deleteSchedule, getScheduleForUser, updateSchedule } from '@/server/schedules';
 
 export const dynamic = 'force-dynamic';
@@ -44,7 +44,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx): Promise<Response> {
 
   let body: unknown;
   try {
-    body = await req.json();
+    body = await readJsonLimited(req, 64 * 1024);
   } catch {
     return errorJson('Invalid JSON body.', 400, 'invalid_json');
   }

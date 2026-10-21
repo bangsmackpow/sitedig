@@ -1,7 +1,9 @@
 import type { WhoisInfo } from '../shared/types';
+import { safeFetchText } from './safe-fetch';
 
 const RDAP_BOOTSTRAP = 'https://rdap.org/domain/';
 const TIMEOUT_MS = 25_000;
+const MAX_RDAP_BYTES = 512 * 1024;
 
 /**
  * WHOIS/registration lookup via the RDAP HTTP protocol (JSON, no binary).
@@ -9,15 +11,16 @@ const TIMEOUT_MS = 25_000;
  */
 export async function rdapLookup(host: string): Promise<WhoisInfo> {
   try {
-    const res = await fetch(`${RDAP_BOOTSTRAP}${encodeURIComponent(host)}`, {
-      redirect: 'follow',
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-      headers: { accept: 'application/rdap+json, application/json' },
+    const res = await safeFetchText(new URL(`${RDAP_BOOTSTRAP}${encodeURIComponent(host)}`), {
+      accept: 'application/rdap+json, application/json',
+      timeoutMs: TIMEOUT_MS,
+      maxBytes: MAX_RDAP_BYTES,
+      allowRedirects: true,
     });
-    if (!res.ok) {
+    if (res.status < 200 || res.status >= 300) {
       return { registrar: null, creationDate: null, updateDate: null, expiryDate: null, status: [], nameservers: [], error: `RDAP lookup failed with HTTP ${res.status}` };
     }
-    const data = (await res.json()) as Record<string, unknown>;
+    const data = JSON.parse(res.body) as Record<string, unknown>;
 
     const registrar = extractRegistrar(data.entities);
     const nameservers = Array.isArray(data.nameservers)

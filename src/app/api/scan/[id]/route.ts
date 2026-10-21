@@ -4,7 +4,7 @@ import type { PublicJobView } from '@/shared/types';
 import { getJobStatus, WorkerClientError, WorkerUnavailableError } from '@/app/lib/worker-client';
 import { ensureInitialized } from '@/server/bootstrap';
 import { guardUser } from '@/server/http';
-import { errorJson } from '@/server/http';
+import { getScanForUser } from '@/server/scans';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,6 +17,10 @@ export async function GET(req: NextRequest, ctx: Ctx): Promise<NextResponse> {
   const guard = await guardUser(req);
   if (!guard.ok) return guard.response;
   const { id } = await ctx.params;
+  const scan = getScanForUser(id, guard.value.user.id, guard.value.user.role === 'admin');
+  if (!scan) {
+    return NextResponse.json({ error: { code: 'not_found', message: 'Scan not found.' } }, { status: 404 });
+  }
   try {
     const job = await getJobStatus(id);
     return NextResponse.json({ job });

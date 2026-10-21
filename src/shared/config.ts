@@ -165,6 +165,14 @@ export function getWebConfig(env: NodeJS.ProcessEnv = process.env): WebConfig {
 
 /** Validate deployment config; throws with a clear message when invalid. */
 export function validateWebConfig(config: WebConfig): void {
+  // Internal web -> worker calls must never be unauthenticated. Fail closed at
+  // startup instead of silently accepting unauthenticated internal requests.
+  if (!config.serviceToken) {
+    throw new Error('SCAN_SERVICE_TOKEN is required. Generate a long random value and set it on both web and worker.');
+  }
+  if (config.serviceToken.length < 32) {
+    throw new Error('SCAN_SERVICE_TOKEN must be at least 32 characters.');
+  }
   if (config.deploymentMode === 'hosted') {
     if (!config.stripe.configured) {
       throw new Error('Hosted mode requires STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, and STRIPE_PRICE_ID.');

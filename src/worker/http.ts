@@ -37,6 +37,8 @@ export async function httpCheck(target: NormalizedTarget, deps: HttpCheckDeps): 
     try {
       let hops = 0;
       for (;;) {
+        // Re-validate immediately before each request, not just redirects.
+        await resolveAndValidate(currentUrl.hostname, deps.resolver);
         const res = await fetch(currentUrl, {
           redirect: 'manual',
           signal: AbortSignal.timeout(HTTP_CHECK_TIMEOUT_MS),
@@ -129,6 +131,7 @@ function collectHeaders(headers: Headers): Record<string, string> {
 
 export async function tlsCheck(target: NormalizedTarget): Promise<TlsObservation> {
   const port = 443;
+  await resolveAndValidate(target.host);
   return new Promise<TlsObservation>((resolvePromise) => {
     const servername = isIP(target.host) ? undefined : target.host;
     const socket: TLSSocket = tlsConnect({

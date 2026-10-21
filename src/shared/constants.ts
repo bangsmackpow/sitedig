@@ -10,6 +10,8 @@ export const MAX_STEP_TIMEOUT_MS = 300_000; // per-step cap for heavy tools (nuc
 export const MODERATE_STEP_TIMEOUT_MS = 120_000; // per-step cap for dnsx/feroxbuster
 export const DEFAULT_MAX_CONCURRENT_SCANS = 1;
 export const DEFAULT_MAX_QUEUE = 3;
+/** Prevent a single account from monopolising the worker queue. */
+export const MAX_ACTIVE_SCANS_PER_USER = 2;
 export const DEFAULT_MAX_TOOL_OUTPUT_BYTES = 20 * 1024 * 1024;
 export const DEFAULT_WEB_PORT = 3000;
 export const DEFAULT_WORKER_PORT = 8081;

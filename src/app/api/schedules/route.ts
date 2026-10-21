@@ -8,7 +8,7 @@ import { auditLog } from '@/server/audit';
 import { verifyCsrfOrOrigin } from '@/server/auth/csrf';
 import { ensureInitialized } from '@/server/bootstrap';
 import { canUseModule, isPremium } from '@/server/entitlements';
-import { errorJson, guardUser, json } from '@/server/http';
+import { errorJson, guardUser, json, readJsonLimited } from '@/server/http';
 import { countSchedules, createSchedule, listSchedules } from '@/server/schedules';
 import { isUserVerified } from '@/server/users';
 
@@ -33,7 +33,7 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   let body: unknown;
   try {
-    body = await req.json();
+    body = await readJsonLimited(req, 64 * 1024);
   } catch {
     return errorJson('Invalid JSON body.', 400, 'invalid_json');
   }

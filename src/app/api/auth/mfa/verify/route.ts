@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { z } from 'zod';
 import { ensureInitialized } from '@/server/bootstrap';
-import { errorJson } from '@/server/http';
+import { errorJson, readJsonLimited } from '@/server/http';
 import { getUserById } from '@/server/users';
 import { toPublicUser } from '@/server/auth/service';
 import { isPremium } from '@/server/entitlements';
@@ -25,7 +25,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   await ensureInitialized();
   if (!verifyOrigin(req)) return errorJson('Request origin not allowed.', 403, 'forbidden');
 
-  const body = await req.json().catch(() => null);
+  const body = await readJsonLimited(req, 16 * 1024).catch(() => null);
   const parsed = verifySchema.safeParse(body);
   if (!parsed.success) return errorJson('Enter the code from your authenticator or email.', 400, 'validation_error');
 

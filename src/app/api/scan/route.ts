@@ -4,11 +4,13 @@ import { createJobSchema } from '@/shared/schemas';
 import { createScan, WorkerClientError, WorkerUnavailableError } from '@/app/lib/worker-client';
 import { ensureInitialized } from '@/server/bootstrap';
 import { guardUser } from '@/server/http';
-import { errorJson } from '@/server/http';
+import { errorJson, readJsonLimited } from '@/server/http';
 import { verifyCsrfOrOrigin } from '@/server/auth/csrf';
 import { canUseModule } from '@/server/entitlements';
 import { isUserVerified } from '@/server/users';
-import { recordScanQueued } from '@/server/scans';
+import { countActiveScans, recordScanQueued } from '@/server/scans';
+import { rateLimit } from '@/server/auth/rate-limit';
+import { MAX_ACTIVE_SCANS_PER_USER } from '@/shared/constants';
 import { parseTarget } from '@/shared/targets';
 import { getWebConfig } from '@/shared/config';
 import type { ModuleId } from '@/shared/types';
@@ -25,9 +27,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return errorJson('Verify your email before scanning.', 403, 'email_not_verified');
   }
 
+  const userId = guard.value.user.id;
+  if (!rateLimit(`scan:${userId}`, 10, 15 * 60 * 1000)) {
+    return errorJson('Too many scan requests. Try again later.', 429, 'rate_limited');
+  }
+  if (countActiveScans(userId) >= MAX_ACTIVE_SCANS_PER_USER) {
+    return errorJson(`You already have ${MAX_ACTIVE_SCANS_PER_USER} scans queued or running.`, 429, 'scan_limit');
+  }
+
   let body: unknown;
   try {
-    body = await req.json();
+    body = await readJsonLimited(req, 64 * 1024);
   } catch {
     return errorJson('Invalid JSON body.', 400, 'invalid_json');
   }

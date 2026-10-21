@@ -148,7 +148,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends unzip bsdmainut
     # testssl.sh must run via bash with its own dir intact; use a shim.
     && printf '#!/bin/sh\nexec bash /opt/testssl/testssl.sh "$@"\n' > /usr/local/bin/testssl \
     && chmod +x /usr/local/bin/testssl \
-    && npm install -g retire --silent \
+    && npm install -g retire@6.1.0 --silent \
     # Fail-fast runtime checks: every module binary must execute.
     && { subfinder -version && dnsx -version && nuclei -version && httpx -version && feroxbuster --version && waybackurls -h && retire --version && bash /opt/testssl/testssl.sh -V; } >/dev/null 2>&1 \
        || { echo 'ERROR: one or more module tools failed to run at runtime'; subfinder -version 2>&1; dnsx -version 2>&1; nuclei -version 2>&1; httpx -version 2>&1; feroxbuster --version 2>&1; waybackurls -h 2>&1; retire --version 2>&1; bash /opt/testssl/testssl.sh -V 2>&1; exit 1; } \

@@ -71,7 +71,7 @@ npm run dev:worker
 npm run dev
 ```
 
-Set `WORKER_URL=http://localhost:8081` and (optionally) `SCAN_SERVICE_TOKEN` in your environment. On first web startup, set `INITIAL_ADMIN_EMAIL`/`INITIAL_ADMIN_PASSWORD` to bootstrap the first admin account (self-hosted mode). Running scans now requires signing in. The web service uses a SQLite database (default `./data/sitedig.sqlite` via `DATABASE_PATH`) — the directory is created automatically.
+Set `WORKER_URL=http://localhost:8081` and `SCAN_SERVICE_TOKEN` (a random value of at least 32 characters) in your environment; both services refuse to start without it. On first web startup, set `INITIAL_ADMIN_EMAIL`/`INITIAL_ADMIN_PASSWORD` to bootstrap the first admin account (self-hosted mode). Running scans now requires signing in. The web service uses a SQLite database (default `./data/sitedig.sqlite` via `DATABASE_PATH`) — the directory is created automatically.
 
 > In `self-hosted` mode without email delivery configured (Resend or SMTP), public registration is disabled; accounts are created by an admin (or via the first-admin bootstrap). Registration becomes available once email delivery is configured.
 
@@ -208,7 +208,7 @@ docker compose pull && docker compose up -d
 | --- | --- | --- | --- |
 | `SITEDIG_IMAGE` | both | `ghcr.io/bangsmackpow/sitedig` | GHCR image name |
 | `SITEDIG_TAG` | both | `latest` | Image tag |
-| `SCAN_SERVICE_TOKEN` | both | — | **Required.** Shared secret between web and worker. Change it. |
+| `SCAN_SERVICE_TOKEN` | both | — | **Required.** Shared secret between web and worker; at least 32 random characters. Internal endpoints fail closed when unset. |
 | `WORKER_URL` | web | `http://worker:8081` | Worker HTTP base URL |
 | `WEB_PORT` | web | `3000` | Internal web port |
 | `WORKER_PORT` | worker | `8081` | Internal worker port |
@@ -389,7 +389,7 @@ Test scanners are Node stubs under `tests/fixtures/stub-bin/` — the test suite
 
 - Commands are built as argv arrays and executed with `execa` — **no shell interpolation**, and arguments are asserted against an allowlist (`assertApprovedArgs`).
 - The worker runs as a **non-root** user; `nmap -sT` (TCP connect) requires no raw sockets or `privileged: true`.
-- Web and worker are process-isolated; the worker is only reachable on the internal network behind a bearer token.
+- Web and worker are process-isolated; the worker is only reachable on the internal network behind a bearer token. The token is required at startup, and internal endpoints fail closed when it is unset.
 - Reports never include raw tool output; troubleshooting logs stay in Docker/Portainer.
 
 ## Known limitations

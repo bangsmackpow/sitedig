@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { z } from 'zod';
 import { ensureInitialized } from '@/server/bootstrap';
-import { errorJson } from '@/server/http';
+import { errorJson, readJsonLimited } from '@/server/http';
 import { getWebConfig } from '@/shared/config';
 import { getUserById } from '@/server/users';
 import { findChallenge, refreshEmailCode, type MfaMethod } from '@/server/auth/mfa';
@@ -19,7 +19,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   await ensureInitialized();
   if (!verifyOrigin(req)) return errorJson('Request origin not allowed.', 403, 'forbidden');
 
-  const body = await req.json().catch(() => null);
+  const body = await readJsonLimited(req, 16 * 1024).catch(() => null);
   const parsed = sendSchema.safeParse(body);
   if (!parsed.success) return errorJson('Invalid request.', 400, 'validation_error');
 

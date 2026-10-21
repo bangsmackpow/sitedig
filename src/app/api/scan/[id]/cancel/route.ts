@@ -5,6 +5,7 @@ import { ensureInitialized } from '@/server/bootstrap';
 import { guardUser } from '@/server/http';
 import { errorJson } from '@/server/http';
 import { verifyCsrfOrOrigin } from '@/server/auth/csrf';
+import { getScanForUser } from '@/server/scans';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,6 +19,8 @@ export async function POST(req: NextRequest, ctx: Ctx): Promise<NextResponse> {
   const guard = await guardUser(req);
   if (!guard.ok) return guard.response;
   const { id } = await ctx.params;
+  const scan = getScanForUser(id, guard.value.user.id, guard.value.user.role === 'admin');
+  if (!scan) return errorJson('Scan not found.', 404, 'not_found');
   try {
     const job = await cancelScan(id);
     return NextResponse.json({ job });

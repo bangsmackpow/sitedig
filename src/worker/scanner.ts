@@ -110,8 +110,15 @@ async function defaultVerifyLive(urls: string[], signal: AbortSignal): Promise<S
   const live = new Set<string>();
   for (const url of urls.slice(0, 15)) {
     try {
-      const perReq = AbortSignal.any([signal, AbortSignal.timeout(5_000)]);
-      const res = await fetch(url, { method: 'HEAD', redirect: 'manual', signal: perReq, headers: { 'user-agent': DEFAULT_USER_AGENT } });
+      // Every candidate is same-host by parser construction; still validate DNS
+      // on each request so archived hosts cannot rebind to internal addresses.
+      const res = await safeFetchText(new URL(url), {
+        method: 'HEAD',
+        allowRedirects: false,
+        sameHostOnly: true,
+        timeoutMs: 5_000,
+        signal,
+      });
       if (res.status >= 200 && res.status < 300) live.add(url);
     } catch {
       // skip unreachable candidate
@@ -762,7 +769,7 @@ export class ScannerService {
               record.exitCode = result.exitCode;
               record.timedOut = result.timedOut;
               const outFile = path.join(jobDir, 'retire.json');
-              const raw = fs.existsSync(outFile) ? fs.readFileSync(outFile, 'utf8') : result.output;
+              const raw = this.readToolFile(outFile, result.output);
               const parsed = parseRetireJson(raw);
               observations.vulnerabilities.push(...parsed);
               // retire.js uses a semantic exit code when findings are found;
@@ -844,11 +851,11 @@ export class ScannerService {
 
             if (step.tool === 'nmap') {
               const outFile = path.join(jobDir, 'nmap.grepable');
-              const raw = fs.existsSync(outFile) ? fs.readFileSync(outFile, 'utf8') : result.output;
+              const raw = this.readToolFile(outFile, result.output);
               observations.ports = parseNmapGrepable(raw);
             } else if (step.tool === 'whatweb') {
               const outFile = path.join(jobDir, 'whatweb.json');
-              const raw = fs.existsSync(outFile) ? fs.readFileSync(outFile, 'utf8') : result.output;
+              const raw = this.readToolFile(outFile, result.output);
               const parsed = parseWhatwebJson(raw);
               if (parsed) {
                 observations.technologies = parsed.plugins;
@@ -856,7 +863,7 @@ export class ScannerService {
               }
             } else if (step.tool === 'wpscan') {
               const outFile = path.join(jobDir, 'wpscan.json');
-              const raw = fs.existsSync(outFile) ? fs.readFileSync(outFile, 'utf8') : result.output;
+              const raw = this.readToolFile(outFile, result.output);
               const parsed = parseWpscanJson(raw);
               observations.wpscan = parsed;
               // WPScan uses semantic exit codes (e.g. 3 = post-run exception).
@@ -871,7 +878,7 @@ export class ScannerService {
               }
             } else if (step.tool === 'nuclei') {
               const outFile = path.join(jobDir, 'nuclei.jsonl');
-              const raw = fs.existsSync(outFile) ? fs.readFileSync(outFile, 'utf8') : result.output;
+              const raw = this.readToolFile(outFile, result.output);
               const parsed = parseNucleiJsonl(raw);
               observations.vulnerabilities.push(...parsed);
               // Nuclei may exit 1 when some templates error, but if findings
@@ -882,11 +889,11 @@ export class ScannerService {
               }
             } else if (step.tool === 'subfinder') {
               const outFile = path.join(jobDir, 'subfinder.json');
-              const raw = fs.existsSync(outFile) ? fs.readFileSync(outFile, 'utf8') : result.output;
+              const raw = this.readToolFile(outFile, result.output);
               observations.subdomains = parseSubfinderJson(raw);
             } else if (step.tool === 'testssl') {
               const outFile = path.join(jobDir, 'testssl.json');
-              const raw = fs.existsSync(outFile) ? fs.readFileSync(outFile, 'utf8') : result.output;
+              const raw = this.readToolFile(outFile, result.output);
               const parsed = parseTestsslJson(raw);
               observations.tlsHardening = parsed;
               // testssl.sh uses non-zero exit codes for findings; parseable
@@ -897,11 +904,11 @@ export class ScannerService {
               }
             } else if (step.tool === 'feroxbuster') {
               const outFile = path.join(jobDir, 'ferox.json');
-              const raw = fs.existsSync(outFile) ? fs.readFileSync(outFile, 'utf8') : result.output;
+              const raw = this.readToolFile(outFile, result.output);
               observations.discoveredPaths = parseFeroxJson(raw);
             } else if (step.tool === 'httpx') {
               const outFile = path.join(jobDir, 'httpx.jsonl');
-              const raw = fs.existsSync(outFile) ? fs.readFileSync(outFile, 'utf8') : result.output;
+              const raw = this.readToolFile(outFile, result.output);
               const parsed = parseHttpxJsonl(raw);
               if (parsed) {
                 observations.httpx = parsed;
@@ -910,7 +917,7 @@ export class ScannerService {
               }
             } else if (step.tool === 'waybackurls') {
               const outFile = path.join(jobDir, 'wayback.txt');
-              const raw = fs.existsSync(outFile) ? fs.readFileSync(outFile, 'utf8') : result.output;
+              const raw = this.readToolFile(outFile, result.output);
               const archived = parseWaybackUrls(raw, job.target.host);
               const candidates = archived.filter((a) => a.category !== 'other').map((a) => a.url);
               if (candidates.length > 0 && !controller.signal.aborted) {
@@ -1120,7 +1127,7 @@ export class ScannerService {
       const stepStart = Date.now();
       const outFile = path.join(jobDir, 'wpscan.json');
       const result = await runTool(step.tool, step.args, runnerDeps, { timeoutMs: stepTimeout, signal: controller.signal });
-      const raw = fs.existsSync(outFile) ? fs.readFileSync(outFile, 'utf8') : result.output;
+      const raw = this.readToolFile(outFile, result.output);
       const parsed = parseWpscanJson(raw);
       // WPScan uses semantic exit codes (0/1/2/3/4/5); a non-zero code after
       // producing parseable JSON is not a hard failure. Treat it as success
@@ -1184,6 +1191,25 @@ export class ScannerService {
     }
   }
 
+  /**
+   * Read a tool's `-o` output file with the same hard cap as captured stdout.
+   * Tool-written files otherwise bypass `MAX_TOOL_OUTPUT_BYTES` entirely and can
+   * exhaust worker memory/disk.
+   */
+  private readToolFile(filePath: string, fallback: string): string {
+    try {
+      const stat = fs.statSync(filePath);
+      if (!stat.isFile()) return fallback;
+      if (stat.size > this.config.maxToolOutputBytes) {
+        throw new Error(`Tool output file exceeded ${this.config.maxToolOutputBytes} bytes.`);
+      }
+      return fs.readFileSync(filePath, 'utf8');
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT') return fallback;
+      throw e;
+    }
+  }
+
   /** Never surface the WPScan API token in reports/logs (it can appear in execa error messages). */
   private redactError(msg: string | null): string | null {
     if (!msg || !this.config.wpscanApiToken) return msg;
@@ -1195,25 +1221,43 @@ export class ScannerService {
    * fingerprint vulnerable libraries. Returns an error string or null on success.
    */
   private async downloadJsForRetire(job: Job, jsDir: string, controller: AbortController): Promise<string | null> {
+    const MAX_HTML_BYTES = 1024 * 1024;
+    const MAX_JS_FILE_BYTES = 2 * 1024 * 1024;
+    const MAX_JS_TOTAL_BYTES = 8 * 1024 * 1024;
     try {
       fs.mkdirSync(jsDir, { recursive: true });
       const baseUrl = `${job.target.scheme}://${formatHostForUrl(job.target.host)}${job.target.path}`;
-      const res = await fetch(baseUrl, {
+      const page = await safeFetchText(new URL(baseUrl), {
+        resolver: this.resolver,
+        userAgent: DEFAULT_USER_AGENT,
+        accept: 'text/html',
+        maxBytes: MAX_HTML_BYTES,
+        timeoutMs: 12_000,
         signal: controller.signal,
-        headers: { 'user-agent': DEFAULT_USER_AGENT, accept: 'text/html' },
       });
-      if (!res.ok) return `Could not fetch ${baseUrl} (HTTP ${res.status}).`;
-      const html = await res.text();
-      const srcs = extractScriptSrcs(html, baseUrl, job.target.host);
+      if (page.status < 200 || page.status >= 300) return `Could not fetch ${baseUrl} (HTTP ${page.status}).`;
+      const srcs = extractScriptSrcs(page.body, baseUrl, job.target.host);
       if (srcs.length === 0) return 'No same-origin JavaScript files found to scan.';
       let downloaded = 0;
+      let totalBytes = 0;
       for (const src of srcs.slice(0, 10)) {
+        const remaining = MAX_JS_TOTAL_BYTES - totalBytes;
+        if (remaining <= 0) break;
         try {
-          const r = await fetch(src, { signal: controller.signal, headers: { 'user-agent': DEFAULT_USER_AGENT } });
-          if (!r.ok) continue;
-          const buf = Buffer.from(await r.arrayBuffer());
-          fs.writeFileSync(path.join(jsDir, `js-${downloaded}.js`), buf);
+          const r = await safeFetchText(new URL(src), {
+            resolver: this.resolver,
+            userAgent: DEFAULT_USER_AGENT,
+            maxBytes: Math.min(MAX_JS_FILE_BYTES, remaining),
+            timeoutMs: 12_000,
+            signal: controller.signal,
+            sameHostOnly: true,
+          });
+          if (r.status < 200 || r.status >= 300 || r.truncated) continue;
+          const bytes = Buffer.byteLength(r.body);
+          if (bytes === 0) continue;
+          fs.writeFileSync(path.join(jsDir, `js-${downloaded}.js`), r.body);
           downloaded += 1;
+          totalBytes += bytes;
         } catch {
           // skip failed script downloads
         }

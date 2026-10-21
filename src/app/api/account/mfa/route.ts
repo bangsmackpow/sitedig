@@ -2,7 +2,7 @@ import type { NextRequest } from 'next/server';
 import { z } from 'zod';
 import QRCode from 'qrcode';
 import { ensureInitialized } from '@/server/bootstrap';
-import { errorJson, json } from '@/server/http';
+import { errorJson, json, readJsonLimited } from '@/server/http';
 import { guardUser } from '@/server/http';
 import { getDb } from '@/server/db';
 import { verifyCsrfOrOrigin } from '@/server/auth/csrf';
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
     return errorJson('Too many attempts. Try again later.', 429, 'rate_limited');
   }
 
-  const parsed = schema.safeParse(await req.json().catch(() => null));
+  const parsed = schema.safeParse(await readJsonLimited(req, 16 * 1024).catch(() => null));
   if (!parsed.success) return errorJson('Invalid request.', 400, 'validation_error');
   const input = parsed.data;
 

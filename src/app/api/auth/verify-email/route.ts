@@ -1,7 +1,7 @@
 import type { NextRequest } from 'next/server';
 import { z } from 'zod';
 import { ensureInitialized } from '@/server/bootstrap';
-import { errorJson, json } from '@/server/http';
+import { errorJson, json, readJsonLimited } from '@/server/http';
 import { verifyEmail } from '@/server/auth/service';
 import { getUserById } from '@/server/users';
 
@@ -11,7 +11,7 @@ const schema = z.object({ userId: z.number().int().positive(), token: z.string()
 
 export async function POST(req: NextRequest) {
   await ensureInitialized();
-  const body = await req.json().catch(() => null);
+  const body = await readJsonLimited(req, 16 * 1024).catch(() => null);
   const parsed = schema.safeParse(body);
   if (!parsed.success) return errorJson('Invalid input.', 400, 'validation_error');
 

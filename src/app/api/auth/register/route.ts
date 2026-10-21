@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { z } from 'zod';
 import { ensureInitialized } from '@/server/bootstrap';
-import { errorJson, json } from '@/server/http';
+import { errorJson, json, readJsonLimited } from '@/server/http';
 import { AuthError, register, toPublicUser } from '@/server/auth/service';
 import { isPremium } from '@/server/entitlements';
 import { clientIp, rateLimit, sha256 } from '@/server/auth/rate-limit';
@@ -17,7 +17,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   await ensureInitialized();
   if (!verifyOrigin(req)) return errorJson('Request origin not allowed.', 403, 'forbidden');
 
-  const body = await req.json().catch(() => null);
+  const body = await readJsonLimited(req, 16 * 1024).catch(() => null);
   const parsed = registerSchema.safeParse(body);
   if (!parsed.success) return errorJson(parsed.error.issues[0]?.message ?? 'Invalid input.', 400, 'validation_error');
 

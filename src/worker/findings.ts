@@ -361,7 +361,8 @@ export function buildFindings(input: FindingsInput): Finding[] {
   for (const w of input.tlsHardening?.weaknesses ?? []) {
     const sev: Finding['severity'] = w.severity === 'CRITICAL' ? 'critical' : w.severity === 'HIGH' ? 'high' : w.severity === 'MEDIUM' ? 'medium' : 'low';
     const supporting: ToolName[] = ['testssl'];
-    if (nucleiMatch(input.vulnerabilities, new RegExp(w.name.slice(0, 12), 'i'))) supporting.push('nuclei');
+    const weaknessPattern = w.name.slice(0, 12).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (weaknessPattern && nucleiMatch(input.vulnerabilities, new RegExp(weaknessPattern, 'i'))) supporting.push('nuclei');
     const finding: Finding = {
       id: nextId(),
       category: 'misconfiguration',

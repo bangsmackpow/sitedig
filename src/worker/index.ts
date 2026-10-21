@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -37,9 +38,13 @@ export function startWorkerServer(opts: { config: ReturnType<typeof getWorkerCon
   const log = createLogger({ LOG_LEVEL: config.logLevel });
 
   function isAuthorized(req: IncomingMessage): boolean {
-    if (!config.serviceToken) return true;
+    // Fail closed: without a configured token every non-health endpoint is off.
+    if (!config.serviceToken) return false;
     const header = req.headers.authorization ?? '';
-    return header === `Bearer ${config.serviceToken}`;
+    const expected = `Bearer ${config.serviceToken}`;
+    const a = Buffer.from(header);
+    const b = Buffer.from(expected);
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
   }
 
   function sendJson(res: ServerResponse, status: number, body: unknown): void {
@@ -163,8 +168,8 @@ export function startWorkerServer(opts: { config: ReturnType<typeof getWorkerCon
     }
 
     const mime = format === 'pdf' ? 'application/pdf' : 'text/markdown; charset=utf-8';
-    const filename = format === 'pdf' ? `sitedig-report-${jobId}.pdf` : `sitedig-report-${jobId}.md`;
     const safeJobId = jobId.replace(/[^a-zA-Z0-9-]/g, '');
+    const filename = format === 'pdf' ? `sitedig-report-${safeJobId}.pdf` : `sitedig-report-${safeJobId}.md`;
 
     res.writeHead(200, {
       'content-type': mime,
@@ -254,6 +259,14 @@ export function main(): void {
   }
   const config = getWorkerConfig();
   const log = createLogger({ LOG_LEVEL: config.logLevel });
+  if (!config.serviceToken || config.serviceToken.length < 32) {
+    log.error('scan_service_token_required', { reason: 'Set SCAN_SERVICE_TOKEN to a long random value (at least 32 characters).' });
+    process.exit(1);
+  }
+  if (config.allowInternalTargets && process.env.NODE_ENV === 'production') {
+    log.error('allow_internal_targets_forbidden', { reason: 'ALLOW_INTERNAL_TARGETS must be false in production.' });
+    process.exit(1);
+  }
   const service = new ScannerService(config, log);
   service.start();
   const server = startWorkerServer({ config, service });

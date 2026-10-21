@@ -3,7 +3,7 @@ import type { NextRequest } from 'next/server';
 import { timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import { ensureInitialized } from '@/server/bootstrap';
-import { errorJson, json } from '@/server/http';
+import { errorJson, json, readJsonLimited } from '@/server/http';
 import { getWebConfig } from '@/shared/config';
 import { applyScanEvent } from '@/server/scans';
 import { maybeSendScheduleAlert } from '@/server/schedule-alerts';
@@ -73,7 +73,8 @@ const payloadSchema = z
 /** Internal bearer-token guard (mirrors the worker's own auth when a token is set). */
 function authorized(req: NextRequest): boolean {
   const token = getWebConfig().serviceToken;
-  if (!token) return true;
+  // Never fail open: an unset token means internal endpoints are disabled.
+  if (!token) return false;
   const header = req.headers.get('authorization') ?? '';
   const expected = `Bearer ${token}`;
   const a = Buffer.from(header);
@@ -85,7 +86,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   await ensureInitialized();
   if (!authorized(req)) return errorJson('Unauthorized.', 401, 'unauthorized');
 
-  const parsed = payloadSchema.safeParse(await req.json().catch(() => null));
+  const parsed = payloadSchema.safeParse(await readJsonLimited(req, 512 * 1024).catch(() => null));
   if (!parsed.success) return errorJson('Invalid scan event.', 400, 'validation_error');
 
   try {

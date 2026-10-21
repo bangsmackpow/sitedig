@@ -1,7 +1,7 @@
 import type { NextRequest } from 'next/server';
 import { z } from 'zod';
 import { ensureInitialized } from '@/server/bootstrap';
-import { errorJson, json } from '@/server/http';
+import { errorJson, json, readJsonLimited } from '@/server/http';
 import { AuthError, resetPassword } from '@/server/auth/service';
 import { verifyOrigin } from '@/server/auth/csrf';
 import { getUserById } from '@/server/users';
@@ -19,7 +19,7 @@ const schema = z
 export async function POST(req: NextRequest) {
   await ensureInitialized();
   if (!verifyOrigin(req)) return errorJson('Request origin not allowed.', 403, 'forbidden');
-  const body = await req.json().catch(() => null);
+  const body = await readJsonLimited(req, 16 * 1024).catch(() => null);
   const parsed = schema.safeParse(body);
   if (!parsed.success) return errorJson('Invalid input.', 400, 'validation_error');
 
