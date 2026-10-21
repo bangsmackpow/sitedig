@@ -52,6 +52,9 @@ export default function AuthNav() {
             Admin
           </Link>
         )}
+        <Link className="link" href="/pricing">
+          Pricing
+        </Link>
         <Link className="link" href="/history">
           History
         </Link>
@@ -70,6 +73,9 @@ export default function AuthNav() {
 
   return (
     <nav className="nav-auth" style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+      <Link className="link" href="/pricing">
+        Pricing
+      </Link>
       <Link className="link" href="/login">
         Login
       </Link>

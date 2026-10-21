@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { apiFetch, type MePayload } from '@/app/lib/api';
+import { PREMIUM_MONTHLY_USD } from '@/shared/pricing';
 
 interface TotpSetup {
   secret: string;
@@ -198,6 +199,7 @@ export default function AccountPage() {
         <p>
           {me.user.premium ? <span className="pill active">Premium</span> : <span className="pill info">Free</span>}
           {me.user.role === 'admin' && <span style={{ marginLeft: 8 }} className="pill info">Admin</span>}
+          {!me.user.premium && <span className="text-muted" style={{ marginLeft: 8 }}>Premium is ${PREMIUM_MONTHLY_USD}/month.</span>}
         </p>
       </div>
 
@@ -215,7 +217,7 @@ export default function AccountPage() {
       <div className="actions">
         {!me.user.premium && me.user.status !== 'deletion_pending' && (
           <button className="button" onClick={upgrade} disabled={busy}>
-            Upgrade to Premium
+            Upgrade to Premium — ${PREMIUM_MONTHLY_USD}/mo
           </button>
         )}
         {sub && (

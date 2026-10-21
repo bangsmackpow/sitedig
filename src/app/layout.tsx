@@ -40,7 +40,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         </header>
         <main className="main">{children}</main>
         <footer className="footer">
-          {APP_NAME} v{APP_VERSION} — detection-oriented scanning only. Use only on systems you own or are authorized to test.
+          {APP_NAME} v{APP_VERSION} — detection-oriented scanning only. Use only on systems you own or are authorized to test. |{' '}
+          <Link className="link" href="/pricing">
+            Pricing
+          </Link>
         </footer>
       </body>
     </html>

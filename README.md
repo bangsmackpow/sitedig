@@ -203,6 +203,13 @@ Create a **Proxy Host**:
 docker compose pull && docker compose up -d
 ```
 
+## Pricing
+
+- **Free** — core profiles, PHP2Shell Check, PDF/Markdown reports, scan history. No card required.
+- **Premium** — $79/month: all nine add-on modules, daily/weekly recurring scans, change detection and alerts, and the remediation playbook.
+
+The prices shown in the app are display values (`src/shared/pricing.ts`). Create the matching recurring Price in Stripe and set `STRIPE_PRICE_ID`; Stripe remains the billing source of truth. Premium can also be granted manually by an admin in self-hosted mode.
+
 ## Configuration
 
 | Variable | Service | Default | Description |
