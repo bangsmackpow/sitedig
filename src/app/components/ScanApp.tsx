@@ -369,53 +369,6 @@ export default function ScanApp() {
 
       {error && <div className="error-box">{error}</div>}
 
-      {job && (
-        <div style={{ marginTop: 20 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-            <span className={`status-badge ${job.status}`}>{STATUS_LABEL[job.status] ?? job.status}</span>
-            <span className="meta-line">
-              Target: {job.target} · Profile: {job.profile}
-            </span>
-            {isBusy && (
-              <button className="button danger" onClick={cancelCurrent}>
-                Cancel
-              </button>
-            )}
-          </div>
-
-          {job.status === 'completed' && job.hasArtifacts && (
-            <div style={{ marginTop: 16 }}>
-              <p className="meta-line">Reports are downloaded once each — links are single-use.</p>
-              <div style={{ display: 'flex', gap: 12, marginTop: 8, flexWrap: 'wrap' }}>
-                <a className="button" href={`/scan/${encodeURIComponent(job.id)}`}>
-                  View report
-                </a>
-                <a className="button" href={`/api/scan/${encodeURIComponent(job.id)}/download/pdf`}>
-                  Download PDF
-                </a>
-                <a className="button secondary" href={`/api/scan/${encodeURIComponent(job.id)}/download/markdown`}>
-                  Download Markdown
-                </a>
-              </div>
-            </div>
-          )}
-
-          {job.status === 'completed' && summaryParts.length > 0 && (
-            <div className="summary-grid">
-              {summaryParts.map((s, i) => (
-                <span key={i} className="summary-pill">
-                  {s}
-                </span>
-              ))}
-            </div>
-          )}
-
-          {(job.status === 'failed' || job.status === 'cancelled') && job.error && <div className="error-box">{job.error}</div>}
-          {job.status === 'running' && <div className="info-box">Scan in progress. The worker enforces a maximum duration of 10 minutes.</div>}
-          {job.status === 'queued' && <div className="info-box">Your scan is queued behind other scans.</div>}
-        </div>
-      )}
-
       {modules.length > 0 && (
         <div className="field" style={{ marginTop: 22 }}>
           <label>Add-on modules</label>
@@ -486,6 +439,53 @@ export default function ScanApp() {
           Start scan
         </button>
       </div>
+
+      {job && (
+        <div className="scan-status">
+          <div className="scan-status-head">
+            <span className={`status-badge ${job.status}`}>{STATUS_LABEL[job.status] ?? job.status}</span>
+            <span className="meta-line">
+              Target: {job.target} · Profile: {job.profile}
+            </span>
+            {isBusy && (
+              <button className="button danger" onClick={cancelCurrent}>
+                Cancel
+              </button>
+            )}
+          </div>
+
+          {job.status === 'completed' && job.hasArtifacts && (
+            <div style={{ marginTop: 14 }}>
+              <p className="meta-line">Reports are downloaded once each — links are single-use.</p>
+              <div style={{ display: 'flex', gap: 12, marginTop: 8, flexWrap: 'wrap' }}>
+                <a className="button" href={`/scan/${encodeURIComponent(job.id)}`}>
+                  View report
+                </a>
+                <a className="button" href={`/api/scan/${encodeURIComponent(job.id)}/download/pdf`}>
+                  Download PDF
+                </a>
+                <a className="button secondary" href={`/api/scan/${encodeURIComponent(job.id)}/download/markdown`}>
+                  Download Markdown
+                </a>
+              </div>
+            </div>
+          )}
+
+          {job.status === 'completed' && summaryParts.length > 0 && (
+            <div className="summary-grid">
+              {summaryParts.map((s, i) => (
+                <span key={i} className="summary-pill">
+                  {s}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {(job.status === 'failed' || job.status === 'cancelled') && job.error && <div className="error-box">{job.error}</div>}
+          {job.status === 'running' && <div className="info-box">Scan in progress. The worker enforces a maximum duration of 10 minutes.</div>}
+          {job.status === 'queued' && <div className="info-box">Your scan is queued behind other scans.</div>}
+        </div>
+      )}
 
       {consentOpen && (
         <div className="modal-backdrop" onClick={closeConsent}>

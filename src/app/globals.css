@@ -276,6 +276,19 @@ h3 {
   font-size: 13px;
 }
 
+.scan-status {
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+.scan-status-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
 label {
   display: block;
   font-weight: 600;
