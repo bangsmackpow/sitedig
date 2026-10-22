@@ -161,6 +161,63 @@ describe('buildFindings', () => {
     expect(findings.some((x) => x.title.includes('MTA-STS'))).toBe(true);
   });
 
+  it('does not report missing DMARC when a valid record is present', () => {
+    const findings = buildFindings(
+      base({
+        email: {
+          domain: 'example.com',
+          spfRecords: ['v=spf1 -all'],
+          dmarcRecords: ['v=DMARC1; p=reject; rua=mailto:dmarc@example.com'],
+          mx: [{ host: 'mail.example.com', priority: 10 }],
+          mtaSts: null,
+          tlsRpt: null,
+          starttls: { checked: false, mx: null, supported: null, error: null },
+          error: null,
+        },
+      }),
+    );
+    expect(findings.some((x) => x.title.includes('No DMARC'))).toBe(false);
+    expect(findings.some((x) => x.title.includes('monitoring-only'))).toBe(false);
+    expect(findings.some((x) => x.title.includes('aggregate report address'))).toBe(false);
+  });
+
+  it('reports a missing rua separately from a p=none policy', () => {
+    const findings = buildFindings(
+      base({
+        email: {
+          domain: 'example.com',
+          spfRecords: ['v=spf1 -all'],
+          dmarcRecords: ['v=DMARC1; p=reject'],
+          mx: [{ host: 'mail.example.com', priority: 10 }],
+          mtaSts: null,
+          tlsRpt: null,
+          starttls: { checked: false, mx: null, supported: null, error: null },
+          error: null,
+        },
+      }),
+    );
+    expect(findings.some((x) => x.title === 'DMARC record is missing an aggregate report address (rua=)')).toBe(true);
+    expect(findings.some((x) => x.title.includes('monitoring-only'))).toBe(false);
+  });
+
+  it('reports p=none as monitoring-only', () => {
+    const findings = buildFindings(
+      base({
+        email: {
+          domain: 'example.com',
+          spfRecords: ['v=spf1 -all'],
+          dmarcRecords: ['v=DMARC1; p=none; rua=mailto:dmarc@example.com'],
+          mx: [{ host: 'mail.example.com', priority: 10 }],
+          mtaSts: null,
+          tlsRpt: null,
+          starttls: { checked: false, mx: null, supported: null, error: null },
+          error: null,
+        },
+      }),
+    );
+    expect(findings.some((x) => x.title === 'DMARC policy is monitoring-only (p=none)')).toBe(true);
+  });
+
   it('raises archival credential leaks to critical and marks live sensitive paths', () => {
     const findings = buildFindings(
       base({

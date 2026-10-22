@@ -23,6 +23,24 @@ async function txtRecords(name: string, resolveTxt: (hostname: string) => Promis
   }
 }
 
+function isDmarcRecord(record: string): boolean {
+  return /^v=DMARC1\b/i.test(record);
+}
+
+/**
+ * DMARC lives at `_dmarc.<domain>`. When scanning a `www.` host, fall back to
+ * the apex record because `www` labels rarely publish their own DMARC policy.
+ */
+async function dmarcRecordsFor(domain: string, resolveTxt: (hostname: string) => Promise<string[][]>): Promise<string[]> {
+  const exact = (await txtRecords(`_dmarc.${domain}`, resolveTxt)).filter(isDmarcRecord);
+  if (exact.length > 0) return exact;
+  const lower = domain.toLowerCase();
+  if (lower.startsWith('www.') && lower.length > 4) {
+    return (await txtRecords(`_dmarc.${domain.slice(4)}`, resolveTxt)).filter(isDmarcRecord);
+  }
+  return [];
+}
+
 function parseDmarcPolicy(records: string[]): { policy: string | null; hasRua: boolean } {
   for (const record of records) {
     const p = record.match(/\bp\s*=\s*(none|quarantine|reject)\b/i)?.[1]?.toLowerCase();
@@ -101,14 +119,14 @@ export async function lookupEmailPosture(domain: string, deps: EmailPostureDeps 
   try {
     const [spfAll, dmarcAll, stsAll, rptAll, mxRecords] = await Promise.all([
       txtRecords(domain, resolveTxt),
-      txtRecords(`_dmarc.${domain}`, resolveTxt),
+      dmarcRecordsFor(domain, resolveTxt),
       txtRecords(`_mta-sts.${domain}`, resolveTxt),
       txtRecords(`_smtp._tls.${domain}`, resolveTxt),
       resolveMx(domain).catch(() => [] as Array<{ exchange: string; priority: number }>),
     ]);
 
     result.spfRecords = spfAll.filter((r) => /^v=spf1(\s|$)/i.test(r));
-    result.dmarcRecords = dmarcAll.filter((r) => /^v=DMARC1(\s|$)/i.test(r));
+    result.dmarcRecords = dmarcAll;
     result.mtaSts = stsAll.find((r) => /^v=STSv1/i.test(r)) ?? null;
     result.tlsRpt = rptAll.find((r) => /^v=TLSRPTv1/i.test(r)) ?? null;
     result.mx = mxRecords

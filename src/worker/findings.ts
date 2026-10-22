@@ -625,17 +625,25 @@ export function buildFindings(input: FindingsInput): Finding[] {
       };
       findings.push(applyCorroboration(finding, corroborate(supporting)));
     } else if (analysis.dmarc.policy === 'none' || !analysis.dmarc.hasRua) {
+      const monitoring = analysis.dmarc.policy === 'none';
+      const missingRua = !analysis.dmarc.hasRua;
       const finding: Finding = {
         id: nextId(),
         category: 'misconfiguration',
         severity: 'medium',
-        title: 'DMARC policy is monitoring-only (p=none)',
-        description: `A DMARC record exists (${email.dmarcRecords.join(' | ')})${analysis.dmarc.policy === 'none' ? ' but the enforcement policy is p=none, so spoofed mail is still delivered' : ''}${!analysis.dmarc.hasRua ? ' and no aggregate report address (rua=) is configured, so you cannot see abuse attempts' : ''}.`,
+        title: monitoring
+          ? 'DMARC policy is monitoring-only (p=none)'
+          : 'DMARC record is missing an aggregate report address (rua=)',
+        description: monitoring
+          ? `A DMARC record exists (${email.dmarcRecords.join(' | ')}) but the enforcement policy is p=none, so spoofed mail is still delivered${missingRua ? ', and no aggregate report address (rua=) is configured' : ''}.`
+          : `A DMARC record exists (${email.dmarcRecords.join(' | ')}) but has no aggregate report address (rua=), so abuse reports are not delivered.`,
         evidence: email.dmarcRecords.map((r) => `dmarc: ${r}`),
         affected: email.domain,
         confidence: 'high',
         verified: true,
-        remediation: 'Review aggregate reports, then raise the policy to p=quarantine and eventually p=reject.',
+        remediation: monitoring
+          ? 'Review aggregate reports, then raise the policy to p=quarantine and eventually p=reject.'
+          : 'Add a rua=mailto: address to the DMARC record to receive aggregate reports.',
         sourceTools: supporting,
         playbookKey: 'dmarc-none',
       };
